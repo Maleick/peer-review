@@ -1,0 +1,18 @@
+# Eval workspace (local development/testing data)
+peer-review-workspace/
+*-workspace/
+
+# Temp files
+/tmp/peer-review-*
+*.XXXXXX
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
