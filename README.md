@@ -23,6 +23,7 @@ Copy the skill into your Claude Code skills directory:
 
 ```bash
 mkdir -p ~/.claude/skills/peer-review
+# From the cloned repo directory:
 cp .claude/skills/peer-review/SKILL.md ~/.claude/skills/peer-review/
 ```
 
@@ -90,6 +91,19 @@ Higher rounds cost proportionally more API calls but produce deeper analysis. 2 
 3. **Round 3+ — Deliberate:** (if ROUNDS >= 3) Models rebut critiques and refine their positions
 4. **Synthesis:** Claude reads all rounds and produces a Decision Packet with numbered action items
 5. **Cherry-pick:** Accept all, cherry-pick by number, ask a follow-up ("Refine"), or discard
+
+## Troubleshooting
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| `PREFLIGHT_FAIL: codex CLI not installed` | Codex CLI not in PATH | Install: `npm install -g @anthropic-ai/codex` then authenticate with `codex auth` |
+| `PREFLIGHT_FAIL: gemini CLI not installed` | Gemini CLI not in PATH | Install: `npm install -g @anthropic-ai/gemini` then authenticate with `gemini auth` |
+| `CODEX_FAILED: exit code 1` | Usually auth expiry or rate limit | Run `codex auth` to re-authenticate. Check `codex --version` for compatibility |
+| `GEMINI_FAILED: exit code 1` | Auth expiry, rate limit, or agent warnings | Run `gemini auth` to re-authenticate. Warnings about unrecognized keys are harmless |
+| Empty output from a model | Model returned nothing | Retry with `/peer-review quick` for simpler dispatch, or use single-target mode |
+| Timeout / no response | CLI hanging on large prompt | Set Bash timeout to 180000ms. Consider splitting prompt into smaller pieces |
+
+**Tip:** Use `/peer-review codex <prompt>` or `/peer-review gemini <prompt>` to test each CLI independently when debugging.
 
 ## Example Output Structure
 

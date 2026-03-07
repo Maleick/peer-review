@@ -13,10 +13,10 @@ These values live at the top of the skill so they're easy to update when new mod
 ```
 CODEX_MODEL: gpt-5.4
 GEMINI_FLAGS: --output-format text
-CODEX_FLAGS: --skip-git-repo-check
+CODEX_FLAGS: --skip-git-repo-check -a never --sandbox read-only --ephemeral
 ROUNDS: 2              # cross-examination rounds (1-4); 1 = no cross-exam, 2 = default, 3-4 = deep deliberation
-TIMEOUT_SOFT: 60       # seconds — start preparing partial results
 TIMEOUT_HARD: 120      # seconds — hard cutoff per CLI call
+MAX_CROSSEXAM_CHARS: 12000  # truncate peer output before feeding into cross-exam to prevent token explosion
 ```
 
 When updating models, change `CODEX_MODEL` to the latest available tier. The Gemini CLI auto-selects its latest model. Set `ROUNDS` higher (3-4) for complex architectural decisions where you want thorough back-and-forth deliberation. Use 1 for quick feedback without cross-examination.
@@ -93,26 +93,26 @@ The key principle: each model gets a different reviewer persona that plays to it
 Send to both models **in parallel** (two Bash calls in the same message). Write prompts to temp files via a Python one-liner to avoid all shell escaping issues. Use a trap to ensure cleanup on failure.
 
 ```bash
-PROMPT_FILE=$(mktemp /tmp/peer-review-codex.XXXXXX)
+PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-codex.XXXXXX)
 chmod 600 "$PROMPT_FILE"
 trap 'rm -f "$PROMPT_FILE"' EXIT
-python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_END_5f8a2c1d'
+python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
 <full codex prompt here>
-PEER_REVIEW_END_5f8a2c1d
-codex exec --skip-git-repo-check --model gpt-5.4 "$(cat "$PROMPT_FILE")" 2>&1; EXIT_CODE=$?
+PEER_REVIEW_EOF_<8_RANDOM_HEX>
+codex exec --skip-git-repo-check -a never --sandbox read-only --ephemeral --model gpt-5.4 "$(cat "$PROMPT_FILE")" 2>/dev/null; EXIT_CODE=$?
 rm -f "$PROMPT_FILE"
 trap - EXIT
 [ $EXIT_CODE -ne 0 ] && echo "CODEX_FAILED: exit code $EXIT_CODE"
 ```
 
 ```bash
-PROMPT_FILE=$(mktemp /tmp/peer-review-gemini.XXXXXX)
+PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gemini.XXXXXX)
 chmod 600 "$PROMPT_FILE"
 trap 'rm -f "$PROMPT_FILE"' EXIT
-python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_END_5f8a2c1d'
+python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
 <full gemini prompt here>
-PEER_REVIEW_END_5f8a2c1d
-gemini -p "$(cat "$PROMPT_FILE")" --output-format text 2>&1; EXIT_CODE=$?
+PEER_REVIEW_EOF_<8_RANDOM_HEX>
+gemini --output-format text "$(cat "$PROMPT_FILE")" 2>/dev/null; EXIT_CODE=$?
 rm -f "$PROMPT_FILE"
 trap - EXIT
 [ $EXIT_CODE -ne 0 ] && echo "GEMINI_FAILED: exit code $EXIT_CODE"
@@ -120,9 +120,12 @@ trap - EXIT
 
 **Security notes:**
 - Prompts are piped via stdin into a Python one-liner that writes to the temp file — this avoids all shell escaping issues (no single-quote, backtick, or `$()` interpretation)
-- The heredoc delimiter `PEER_REVIEW_END_5f8a2c1d` is single-quoted (no variable expansion) and includes a random suffix to resist delimiter injection. Claude should generate a fresh random hex suffix each invocation
+- **CRITICAL — heredoc delimiter randomization:** The template uses `PEER_REVIEW_EOF_<8_RANDOM_HEX>` as a placeholder. You MUST replace `<8_RANDOM_HEX>` with 8 fresh random hex characters (e.g., `a3f7b21e`) on every invocation. Both the opening and closing delimiter must match. Never reuse a previous suffix. This prevents malicious user input from injecting the delimiter string to escape the heredoc and execute arbitrary shell commands
 - `chmod 600` ensures the temp file is only readable by the current user
 - The `trap` ensures temp files are cleaned up even if the CLI call fails or times out
+- Codex runs with `-a never --sandbox read-only --ephemeral` to prevent the reviewer model from modifying the user's workspace — this is critical since the review prompt may contain untrusted content
+- `2>/dev/null` suppresses stderr (Codex emits MCP startup noise, Gemini emits agent warnings). To debug failures, temporarily remove it
+- `$(cat "$PROMPT_FILE")` expands into the process argv (visible via `ps`, limited by ARG_MAX ~1MB on macOS). For prompts containing sensitive code, consider that the content is briefly visible to local users
 
 **Do NOT use the `timeout` command** — it doesn't exist on macOS. The CLIs have internal timeouts. If a response takes longer than expected, the Bash tool's own timeout will catch it. Set the Bash timeout to 180000ms (3 minutes) to give the CLIs room.
 
@@ -159,6 +162,8 @@ If `ROUNDS` is 1 or the mode is quick/single-target, skip this step entirely.
 
 Each round dispatches to both models in parallel, just like Round 1. If one model failed in any earlier round, skip cross-examination entirely and proceed to synthesis with whatever results are available.
 
+**Context growth control:** Before feeding peer output into cross-exam prompts, truncate it to `MAX_CROSSEXAM_CHARS` (default 12000). If truncated, append `\n\n[Output truncated at 12000 chars — full response was longer]` so the reviewing model knows it's seeing a subset. This prevents token explosion in rounds 3-4 where outputs compound.
+
 ### Step 5 — Present Structured Results
 
 Format the results using the appropriate template for the mode.
@@ -191,9 +196,11 @@ Format the results using the appropriate template for the mode.
 **Recommended path:** [single clear recommendation based on all perspectives]
 **Top 3 risks to mitigate:** [numbered, with specific mitigations]
 **Open questions:** [things that need more investigation before proceeding]
-**Actionable items:**
-1. [specific, numbered action items extracted from the review]
-2. ...
+**Actionable items** (tagged by source):
+1. [action item] *(Codex)*
+2. [action item] *(Gemini)*
+3. [action item] *(consensus)* — both models flagged this
+4. ...
 ```
 
 #### For debate mode specifically, add:
@@ -242,6 +249,7 @@ Key behaviors:
 - Higher ROUNDS values cost proportionally more API calls but improve deliberation quality — 2 rounds is the sweet spot for most reviews, 3-4 for complex architectural decisions
 - For very long prompts (>4000 chars), always use the temp file approach — never inline in bash
 - Legacy alias: `/brainstorm` maps to the same modes for backward compatibility
-- Gemini CLI: use `-p` flag for prompt (more reliable than positional args when combined with other flags)
-- Codex CLI: stderr often contains MCP startup noise — filter output if needed
+- Gemini CLI: use positional arg for prompt (the `-p` flag is deprecated). Place `--output-format text` before the positional prompt argument
+- Codex CLI: stderr contains MCP startup noise — suppressed via `2>/dev/null` in the templates. Remove to debug failures
+- Codex runs sandboxed (`-a never --sandbox read-only --ephemeral`) to prevent the reviewer model from modifying the workspace
 - Platform: tested on macOS with zsh; `timeout` command is not available on macOS so it is not used
