@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] — 2025-03-09
+
+### Added
+- Confidence indicators on Decision Packet items: [HIGH CONFIDENCE], [MEDIUM], [LOW] based on cross-examination convergence
+- Priority Matrix (Impact x Effort quadrant table) after Decision Packet
+- Follow-up tracking: add TODOs in code, draft GitHub issues, or summarize as checklist
+- Adversarial injection eval (eval-7) testing heredoc escapes, DATA END injection, instruction overrides
+- Meta self-review eval (eval-8) testing whether the skill can critically review its own design
+- CLAUDE.md with Serena MCP initialization instructions
+
+## [0.4.0] — 2025-03-09
+
+### Added
+- Four new review modes: `refactor`, `deploy`, `api`, `perf` — each with role-differentiated prompts
+- `diff` mode: reviews staged/unstaged git changes with full review treatment
+- `help` command: inline reference table of all modes and options
+- `history` command: shows previous reviews from the current session
+- Context injection (Step 0.5): auto-reads referenced file paths (up to 3 files, 8000 char limit)
+- `--verbose` flag: shows exact prompts sent and raw outputs
+- `--quiet` flag: skips model sections, shows only Decision Packet + cherry-pick menu
+- `--codex-model` / `--gemini-model` flags: per-invocation model overrides with injection-safe validation
+- Deployment Readiness Checklist with Go/No-Go verdict (deploy mode)
+- API Design Scorecard with consistency/evolvability/client experience scores (api mode)
+- Performance Assessment with bottleneck ID, quick wins, load testing items (perf mode)
+- Four new mode evals (eval-3 through eval-6) with 27 new assertions in grade_all.py
+- Graceful handling of missing eval directories in grade_all.py
+
 ## [0.3.0] — 2025-03-07
 
 ### Added

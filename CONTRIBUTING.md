@@ -14,7 +14,21 @@ Update the mode list in the skill's `description` frontmatter so Claude Code kno
 
 ## Running Evals
 
-An eval framework lives in `peer-review-workspace/`. It includes grading scripts and iteration snapshots used during development. Refer to that directory if you want to validate changes against the existing test cases.
+An eval framework lives in `peer-review-workspace/evals/`. Currently 9 evals (eval-0 through eval-8) covering all major modes plus adversarial injection resistance and meta self-review.
+
+```bash
+cd peer-review-workspace/evals
+python3 grade_all.py
+```
+
+Each eval has an `eval_metadata.json` with assertion IDs matched by `grade_assertion()` in `grade_all.py`. To add a new eval:
+
+1. Add an entry to `evals.json` with a prompt and expected output description
+2. Create `iteration-1/eval-N-<name>/eval_metadata.json` with assertions
+3. Add assertion handler functions in `grade_all.py` (follow the naming pattern `assertion_id`)
+4. Create `iteration-1/eval-N-<name>/with_skill/outputs/` directory for run results
+
+The grader skips eval directories with no `eval_metadata.json`, so new evals won't break existing runs.
 
 ## Submitting PRs
 

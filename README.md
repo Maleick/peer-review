@@ -43,12 +43,29 @@ ln -s "$(pwd)/peer-review/.claude/skills/peer-review" ~/.claude/skills/peer-revi
 /peer-review advocate <plan>                   # good cop / bad cop analysis
 /peer-review redteam <plan>                    # adversarial failure analysis
 /peer-review premortem <plan>                  # "it failed in 6 months — why?"
+/peer-review refactor <code description>       # refactoring strategy & SOLID analysis
+/peer-review deploy <deployment plan>          # deployment readiness & Go/No-Go
+/peer-review api <api design>                  # API design review & scorecard
+/peer-review perf <performance issue>          # performance analysis & bottleneck ID
+/peer-review diff                              # review staged/unstaged git changes
 /peer-review quick <prompt>                    # fast single-round opinion
 /peer-review codex <prompt>                    # single-model: Codex only
 /peer-review gemini <prompt>                   # single-model: Gemini only
+/peer-review help                              # list all modes and options
+/peer-review history                           # show previous reviews in session
 ```
 
 Legacy alias: `/brainstorm` maps to the same modes.
+
+### Options
+
+```
+--rounds N              # override cross-examination rounds (1-4)
+--verbose               # show exact prompts sent and raw outputs
+--quiet                 # skip model sections, show only Decision Packet
+--codex-model <model>   # override Codex model (e.g., gpt-5.4)
+--gemini-model <model>  # override Gemini model
+```
 
 ## Modes
 
@@ -60,7 +77,14 @@ Legacy alias: `/brainstorm` maps to the same modes.
 | **advocate** | One model defends the plan (good cop), one attacks it (bad cop) | Balanced strength/weakness analysis |
 | **redteam** | Adversarial analysis: attack vectors, failure modes, silent failures | Security, reliability, edge cases |
 | **premortem** | "It's 6 months later and this failed badly — why?" | Risk assessment, planning gaps |
+| **refactor** | SOLID violations, coupling hotspots, migration strategy | Code refactoring decisions |
+| **deploy** | Rollback plans, blast radius, monitoring gaps, Go/No-Go checklist | Deployment readiness |
+| **api** | Consistency, versioning, pagination, error handling, design scorecard | API design review |
+| **perf** | Query optimization, caching, scaling bottlenecks, performance assessment | Performance issues |
+| **diff** | Reviews staged/unstaged git changes with full review treatment | Code review of changes |
 | **quick** | Raw second opinion from both models, no cross-examination | Fast sanity checks |
+| **help** | Lists all modes, options, and example invocations | Quick reference |
+| **history** | Shows previous reviews from the current session | Tracking review history |
 
 ## Configuration
 
@@ -126,13 +150,28 @@ Higher rounds cost proportionally more API calls but produce deeper analysis. 2 
 Recommended path: ...
 Top 3 risks to mitigate: ...
 Actionable items:
-1. ...
-2. ...
+1. [HIGH CONFIDENCE] ... (source: consensus)
+2. [MEDIUM] ... (source: Codex)
+3. [LOW] ... (source: Gemini, challenged by Codex)
+
+### Priority Matrix
+| | High Impact | Low Impact |
+|---|------------|-----------|
+| Low Effort | Items 1, 3 | Item 5 |
+| High Effort | Item 2 | Item 4 |
 
 ---
 What would you like to do with this feedback?
 - Accept all / Cherry-pick / Refine / Discard
 ```
+
+### Mode-Specific Output Sections
+
+- **deploy**: Deployment Readiness Checklist with Go/No-Go verdict
+- **api**: API Design Scorecard (consistency, evolvability, client experience, 1-5)
+- **perf**: Performance Assessment (primary bottleneck, quick wins, load testing items)
+- **debate**: Judge's Verdict with strongest case and recommended compromise
+- **advocate**: Advocate vs. Critic Summary with net assessment
 
 ## License
 

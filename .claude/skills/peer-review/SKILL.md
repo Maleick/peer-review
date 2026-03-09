@@ -1,5 +1,5 @@
 ---
-description: "Multi-LLM peer review — send plans, ideas, or code to Codex and Gemini for structured peer review with cross-examination, then cherry-pick feedback. Supports review, idea, redteam, debate, premortem, advocate, and quick modes. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, or mentions peer review, brainstorm, or multi-LLM feedback. Also trigger when the user says /brainstorm (legacy alias)."
+description: "Multi-LLM peer review — send plans, ideas, or code to Codex and Gemini for structured peer review with cross-examination, then cherry-pick feedback. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Also trigger when the user says /brainstorm (legacy alias). Supports --rounds N, --verbose, --quiet, --codex-model, and --gemini-model flags."
 ---
 
 # /peer-review — Multi-LLM Peer Review & Brainstorm
@@ -34,6 +34,13 @@ When updating models, change `CODEX_MODEL` to the latest available tier. The Gem
 | `/peer-review quick <prompt>` | Fast second opinion, no synthesis | 1 (always) |
 | `/peer-review codex <prompt>` | Single-target: Codex only | 1 (always) |
 | `/peer-review gemini <prompt>` | Single-target: Gemini only | 1 (always) |
+| `/peer-review help` | Show all modes, options, and examples | N/A |
+| `/peer-review history` | Show recent peer reviews from this session | N/A |
+| `/peer-review diff` | Review staged git changes | ROUNDS (2) |
+| `/peer-review refactor <code-or-plan>` | Review refactoring decisions: patterns, SOLID, dependencies | ROUNDS (2) |
+| `/peer-review deploy <rollout-plan>` | Review deployment/rollout plans | ROUNDS (2) |
+| `/peer-review api <api-design>` | Review API designs: consistency, evolution, client experience | ROUNDS (2) |
+| `/peer-review perf <code-or-plan>` | Performance review: bottlenecks, scaling, capacity | ROUNDS (2) |
 | `/brainstorm ...` | Legacy alias — maps to same modes above | varies |
 
 **Per-invocation rounds override:** Any multi-round mode accepts `--rounds N` to override the default ROUNDS config for that invocation. Example: `/peer-review debate --rounds 3 Should we rewrite the auth layer?`. Quick and single-target modes always use 1 round regardless of `--rounds`.
@@ -53,9 +60,35 @@ command -v gemini >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: gemini CLI not instal
 
 If a CLI is missing, tell the user which one and suggest using the single-target mode for the available LLM. Do not attempt to call a missing CLI.
 
+### Step 0.5 — Context Enrichment
+
+If the user's prompt references a specific file path (e.g., `/peer-review review the auth module in src/auth/handler.ts`), automatically read the file content and append it to the prompt sent to both models. Format the appended context as:
+
+```
+--- FILE CONTEXT (DATA START) ---
+File: {path}
+{file content, truncated to first 8000 characters if longer}
+--- DATA END ---
+```
+
+Rules:
+- Only include files that exist and that Claude can read
+- Truncate files longer than 8000 characters with a notice: `[File truncated at 8000 characters — full file was longer]`
+- If multiple files are referenced, include up to 3 files (skip the rest with a notice)
+- Do NOT auto-include files for quick, single-target, help, or history modes
+- The DATA START/DATA END markers serve the same injection-resistance purpose as in cross-exam
+
 ### Step 1 — Parse Mode and Build Prompts
 
-Extract the subcommand and user's prompt. If `--rounds N` appears anywhere in the invocation, parse it out, remove it from the prompt text, and use N as the round count for this invocation (overriding the default ROUNDS config). N must be an integer 1-4; ignore invalid values and fall back to the default. Quick and single-target modes always use 1 round regardless of `--rounds`.
+Extract the subcommand and user's prompt. Parse and remove any flags before dispatching:
+
+- **`--rounds N`**: Override the default ROUNDS config for this invocation. N must be an integer 1-4; ignore invalid values and fall back to the default. Quick and single-target modes always use 1 round regardless of `--rounds`.
+- **`--verbose`**: Show exact prompts sent to each model (in a collapsed `<details>` block), raw round outputs for every round (not just highlights), and character counts per CLI call.
+- **`--quiet`**: Skip "Claude's Take", individual model response sections, and cross-examination highlights. Show ONLY the Decision Packet and the cherry-pick menu. `--verbose` and `--quiet` are mutually exclusive; if both appear, warn and default to normal.
+- **`--codex-model <model>`**: Override `CODEX_MODEL` for this invocation. The model name must match `[a-zA-Z0-9._-]+` — reject and warn on invalid names. Pass via `--model <model>` in the Codex bash template.
+- **`--gemini-model <model>`**: Override the Gemini model for this invocation. Pass via `--model <model>` flag to the Gemini CLI.
+
+Remove all parsed flags from the prompt text before building role-differentiated prompts.
 
 Then build **role-differentiated** prompts for each model based on the mode.
 
@@ -88,11 +121,72 @@ After presenting both post-mortems, Claude must convert each failure scenario in
 - **Codex prompt (Advocate):** "You are the plan's strongest defender. Your job is to find everything that's working well, validate the approach, and build the case for why this plan will succeed. Identify: (1) the strongest aspects of this plan and why they work, (2) why the chosen approach is better than alternatives, (3) risks that are actually manageable with straightforward mitigations, (4) hidden strengths the author may not have realized. Be specific and evidence-based — genuine advocacy, not empty praise."
 - **Gemini prompt (Critic):** "You are a constructive but relentless critic. Your job is to find everything wrong with this plan and argue for what should be removed or changed. Identify: (1) the weakest aspects of this plan, (2) assumptions that are likely wrong, (3) things that should be cut or simplified, (4) better alternatives for each weak point. Be specific and evidence-based — constructive criticism, not negativity for its own sake."
 
+#### Refactor Mode
+- **Codex prompt:** "You are a refactoring specialist focused on code-level quality. Analyze this refactoring plan or code for: (1) SOLID principle violations — identify which principle is violated, where, and the minimal fix, (2) DRY violations — find duplicated logic that should be extracted, with specific extraction targets, (3) Design pattern misapplications — patterns used incorrectly or simpler alternatives that achieve the same goal, (4) Coupling hotspots — concrete dependency chains that make this code hard to change independently. For each finding, state the specific location, the problem, and a concrete refactoring move (extract method, introduce interface, etc.)."
+- **Gemini prompt:** "You are an architecture reviewer focused on refactoring strategy. Analyze this refactoring plan or code for: (1) Architectural pattern alignment — does this refactoring move toward or away from a coherent architecture, (2) Dependency graph health — are dependencies flowing in the right direction, are there circular dependencies forming, (3) Migration strategy gaps — what is the incremental path from current state to target state, what are the intermediate stable states, (4) Long-term maintainability — will this refactoring make future changes easier or harder, and for which kinds of changes. For each concern, explain the systemic impact and propose an alternative refactoring approach."
+
+#### Deploy Mode
+- **Codex prompt:** "You are a deployment engineer reviewing a rollout plan. Analyze for: (1) Rollback procedures — is every step reversible, what is the rollback trigger, and what is the expected rollback time, (2) Health check coverage — are there readiness/liveness probes, what signals confirm the deploy is healthy, what is the verification window, (3) Feature flag strategy — what is behind flags, what is the flag removal plan, what happens if a flag is stuck, (4) Database migration safety — are migrations backward-compatible, can the old code run against the new schema, what is the data backfill plan. For each gap, state the specific failure scenario and the operational fix."
+- **Gemini prompt:** "You are a site reliability engineer reviewing a rollout plan. Analyze for: (1) Blast radius — what percentage of users/traffic is affected at each stage, what is the exposure timeline, (2) Canary strategy — is there progressive rollout, what metrics gate promotion, what is the bake time between stages, (3) Monitoring gaps — what alerts should fire during rollout, what dashboards should be watched, what is the on-call escalation path, (4) Incident response — if this deploy causes a P1, what is the detection-to-mitigation timeline, who is the DRI, what is the communication plan. For each concern, describe the worst-case scenario and the preventive measure."
+
+#### API Mode
+- **Codex prompt:** "You are an API design reviewer focused on implementation correctness. Analyze this API design for: (1) Consistency violations — naming conventions, HTTP method semantics, error response format inconsistencies across endpoints, (2) Error handling gaps — missing error codes, ambiguous failure states, unhelpful error messages for common client mistakes, (3) Pagination and filtering — is the pagination strategy cursor-based or offset-based (and why), are filters composable, what are the default/max page sizes, (4) Versioning strategy — how are breaking changes introduced, is the versioning in URL/header/query, what is the deprecation timeline. For each issue, provide the specific endpoint or pattern affected and the concrete fix."
+- **Gemini prompt:** "You are an API strategist focused on long-term evolution and client experience. Analyze this API design for: (1) Backwards compatibility risks — which design decisions will be hard to change later, what is the API's evolutionary path, (2) Client experience — is the API intuitive for first-time users, are common workflows achievable in minimal calls, does the error surface guide developers toward correct usage, (3) Rate limiting and abuse prevention — are rate limits documented, are they per-key or per-endpoint, what happens when limits are hit (429 with Retry-After?), (4) API lifecycle — what is the versioning/deprecation/sunset strategy, how do clients discover capabilities, is there a migration path for breaking changes. For each concern, explain why it matters for API longevity and propose an alternative design."
+
+#### Perf Mode
+- **Codex prompt:** "You are a performance engineer focused on code-level optimization. Analyze this code or plan for: (1) Hot path analysis — identify the critical execution paths and where latency concentrates, (2) Memory allocation patterns — unnecessary allocations, object churn, opportunities for pooling or pre-allocation, (3) Caching opportunities — data that is computed repeatedly but changes rarely, with specific cache invalidation strategies, (4) Query and I/O patterns — N+1 queries, missing indexes, unbounded result sets, synchronous I/O on hot paths. For each finding, estimate the performance impact (order of magnitude) and provide the specific optimization."
+- **Gemini prompt:** "You are a capacity planning engineer focused on system-level performance. Analyze this code or plan for: (1) Scaling bottlenecks — which components will hit limits first as load grows 10x, what is the scaling dimension (CPU, memory, I/O, network), (2) Capacity planning gaps — what load testing has been done, what are the SLOs, what headroom exists before degradation, (3) Load distribution — are requests balanced, are there hot partitions, what is the fan-out pattern, (4) Graceful degradation strategy — what happens under 2x expected load, what can be shed, what are the circuit breaker policies. For each concern, describe the failure mode at scale and the architectural mitigation."
+
 #### Quick Mode
 - **Both models:** Pass the user's prompt as-is with no wrapper. No cross-examination rounds.
 
 #### Single-Target Modes (codex/gemini)
 - Pass the user's prompt as-is to the specified model only. No cross-examination rounds.
+
+#### Help Mode
+If the user invokes `/peer-review help`, do NOT dispatch to any CLI. Instead, present this inline reference:
+
+```markdown
+## /peer-review — Available Modes
+
+| Mode | Description | Example |
+|------|-------------|---------|
+| `review` (default) | Implementation + strategic review | `/peer-review We plan to add caching with Redis...` |
+| `idea` | Multi-perspective brainstorm | `/peer-review idea How should we handle auth?` |
+| `redteam` | Adversarial analysis | `/peer-review redteam Our rate limiter uses a fixed window...` |
+| `debate` | Pro/con argument with verdict | `/peer-review debate Should we adopt GraphQL?` |
+| `premortem` | "It failed in 6 months" | `/peer-review premortem Our migration plan is to...` |
+| `advocate` | Good cop / bad cop | `/peer-review advocate Our caching strategy uses...` |
+| `refactor` | Refactoring review | `/peer-review refactor We're extracting a service from...` |
+| `deploy` | Deployment plan review | `/peer-review deploy Rolling deploy of v2.0 with...` |
+| `api` | API design review | `/peer-review api POST /users returns 201 with...` |
+| `perf` | Performance review | `/peer-review perf Our search does full table scan...` |
+| `diff` | Review staged git changes | `/peer-review diff` |
+| `quick` | Fast second opinion (1 round) | `/peer-review quick Is this regex safe?` |
+
+**Options:** `--rounds N` (1-4), `--verbose`, `--quiet`, `--codex-model <model>`, `--gemini-model <model>`
+**Single-target:** `/peer-review codex <prompt>`, `/peer-review gemini <prompt>`
+**Other:** `/peer-review history` (show recent reviews), `/brainstorm` (legacy alias)
+```
+
+#### History Mode
+If the user invokes `/peer-review history`, do NOT dispatch to any CLI. Scan backward through this conversation for outputs matching the pattern `## Peer Review: {mode} — "{title}"`. Extract the mode, title, item count (from the Decision Packet), and accept/discard outcome. Present as a table:
+
+```markdown
+## Peer Review History (this session)
+
+| # | Mode | Topic | Items | Outcome |
+|---|------|-------|-------|---------|
+| 1 | review | "Webhook notification system" | 12 items | Cherry-picked 1, 3, 5 |
+| 2 | redteam | "Bug bounty triage pipeline" | 8 items | Accepted all |
+
+To re-examine any review, say "show review #N" or "refine review #N".
+```
+
+If no previous reviews exist, say "No peer reviews in this session yet."
+
+#### Diff Mode
+If the user invokes `/peer-review diff`, run `git diff --cached` (or `git diff` if nothing is staged) to capture the current changes. If the diff is empty, report "No changes found — stage some changes with `git add` first." Otherwise, wrap the diff content in DATA START/DATA END markers and truncate to 8000 characters if needed. Use the diff output as the review target with **review mode** prompts, prepending: "The following is a git diff of staged code changes. Review these specific code changes for..."
 
 ### Step 2 — Round 1: Dispatch to LLM CLIs
 
@@ -180,7 +274,7 @@ This is critical for rounds 3-4 where outputs compound — without truncation, p
 
 Format the results using the appropriate template for the mode.
 
-#### For multi-round modes (review, idea, redteam, debate, premortem, advocate):
+#### For multi-round modes (review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff):
 
 ```markdown
 ## Peer Review: {mode} — "{short title}"
@@ -208,11 +302,24 @@ Format the results using the appropriate template for the mode.
 **Recommended path:** [single clear recommendation based on all perspectives]
 **Top 3 risks to mitigate:** [numbered, with specific mitigations]
 **Open questions:** [things that need more investigation before proceeding]
-**Actionable items** (tagged by source):
-1. [action item] *(Codex)*
-2. [action item] *(Gemini)*
-3. [action item] *(consensus)* — both models flagged this
+**Actionable items** (tagged by source and confidence):
+1. [action item] *(Codex)* **[HIGH CONFIDENCE]**
+2. [action item] *(Gemini)* **[MEDIUM CONFIDENCE]**
+3. [action item] *(consensus)* **[HIGH CONFIDENCE]** — both models flagged this
 4. ...
+
+Confidence indicators based on cross-examination convergence:
+- **[HIGH CONFIDENCE]** — Both models independently identified this, or the issue survived cross-examination without challenge
+- **[MEDIUM CONFIDENCE]** — One model identified it, the other did not challenge it during cross-exam
+- **[LOW CONFIDENCE]** — One model identified it, and the other explicitly disagreed or weakened the argument during cross-exam
+
+### Priority Matrix
+| | Low Effort | High Effort |
+|---|-----------|-------------|
+| **High Impact** | [items to do first] | [items to plan carefully] |
+| **Low Impact** | [quick wins if time allows] | [skip or defer] |
+
+Place each numbered item from the Decision Packet into the appropriate quadrant based on severity ratings, model assessments, and your knowledge of the user's codebase.
 ```
 
 #### For debate mode specifically, add:
@@ -229,6 +336,32 @@ Format the results using the appropriate template for the mode.
 **Strongest defense:** [the advocate's most compelling argument for why this works]
 **Most damaging critique:** [the critic's most compelling argument for what's wrong]
 **Net assessment:** [which side made the stronger case overall, and what that means for the plan]
+```
+
+#### For deploy mode specifically, add:
+```markdown
+### Deployment Readiness Checklist
+**Go/No-Go:** [GO or NO-GO with reasoning]
+**Blocking items:** [things that must be fixed before deploy]
+**Monitoring plan:** [what to watch during and after rollout]
+**Rollback trigger:** [specific conditions that trigger rollback]
+```
+
+#### For api mode specifically, add:
+```markdown
+### API Design Scorecard
+**Consistency:** [score 1-5 with reasoning]
+**Evolvability:** [score 1-5 with reasoning]
+**Client Experience:** [score 1-5 with reasoning]
+**Breaking changes found:** [list any design choices that will be hard to change]
+```
+
+#### For perf mode specifically, add:
+```markdown
+### Performance Assessment
+**Primary bottleneck:** [the single biggest performance concern and why]
+**Quick wins:** [optimizations with high impact and low effort]
+**Requires load testing:** [claims that need empirical validation before acting]
 ```
 
 #### For quick/single-target modes:
@@ -253,6 +386,15 @@ Key behaviors:
 - If there's a file context (e.g., the user reviewed a specific file), offer to apply accepted items directly: "I can apply items 1, 3, 5 directly to `path/to/file`. Want me to?"
 
 **For "Refine":** Ask the user what they want to dig into, then dispatch a single follow-up prompt to the most relevant model (or both). Present the follow-up response inline and re-offer the accept/discard menu.
+
+**Follow-up tracking:** After the user cherry-picks items, offer follow-up options:
+
+```markdown
+**How should I track the accepted items?**
+- **Add TODOs** — Insert `// TODO(peer-review): {item}` comments at relevant locations in the code
+- **Draft issues** — Generate GitHub issue descriptions for each item (you'll review before submission)
+- **Just summarize** — List accepted items as a checklist for your reference
+```
 
 ## Notes
 
