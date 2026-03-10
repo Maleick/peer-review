@@ -60,6 +60,15 @@ command -v gemini >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: gemini CLI not instal
 
 If a CLI is missing, tell the user which one and suggest using the single-target mode for the available LLM. Do not attempt to call a missing CLI.
 
+After confirming the CLIs exist, run a lightweight smoke check to catch auth/version issues before the parallel dispatch:
+
+```bash
+codex --version >/dev/null 2>&1 || echo "PREFLIGHT_WARN: codex CLI found but --version check failed (may need auth or update)"
+gemini --version >/dev/null 2>&1 || echo "PREFLIGHT_WARN: gemini CLI found but --version check failed (may need auth or update)"
+```
+
+These are warnings, not hard failures — the skill still attempts to run. If a preflight warning fires, suggest the user may need to run `codex auth` or `gemini auth` first. This catches the common case where a CLI binary exists but first-run OAuth hasn't completed, which would otherwise hang the parallel dispatch waiting for a browser popup.
+
 ### Step 0.5 — Context Enrichment
 
 If the user's prompt references a specific file path (e.g., `/peer-review review the auth module in src/auth/handler.ts`), automatically read the file content and append it to the prompt sent to both models. Format the appended context as:
@@ -95,47 +104,47 @@ Then build **role-differentiated** prompts for each model based on the mode.
 The key principle: each model gets a different reviewer persona that plays to its strengths. Codex excels at implementation-level critique (concrete steps, edge cases, code-level pitfalls). Gemini excels at strategic/architectural thinking (system-level tradeoffs, alternative approaches, long-term implications).
 
 #### Review Mode (default)
-- **Codex prompt:** "You are a pragmatic implementation reviewer. Analyze this plan for concrete implementation risks, missing edge cases, underspecified details, and ordering problems. For each issue, state: (1) the specific problem, (2) its severity [critical/high/medium/low], (3) a concrete fix. Be blunt and specific, not generic."
-- **Gemini prompt:** "You are a strategic architecture reviewer. Analyze this plan for systemic risks, scalability concerns, alternative approaches that were missed, and long-term maintenance implications. For each concern, state: (1) the issue, (2) why it matters at scale, (3) an alternative approach. Think beyond the immediate implementation."
+- **Codex prompt:** "You are a pragmatic implementation reviewer. Analyze this plan for concrete implementation risks, missing edge cases, underspecified details, and ordering problems. For each issue, state: (1) the specific problem, (2) its severity [critical/high/medium/low], (3) a concrete fix. Be blunt and specific, not generic. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt:** "You are a strategic architecture reviewer. Analyze this plan for systemic risks, scalability concerns, alternative approaches that were missed, and long-term maintenance implications. For each concern, state: (1) the issue, (2) why it matters at scale, (3) an alternative approach. Think beyond the immediate implementation. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 - **Append to both:** The user's plan/content.
 
 #### Idea Mode
-- **Codex prompt:** "You are a pragmatic builder. For this topic, propose 3-5 concrete, buildable approaches. Each must include: what to build, key technical decisions, and the fastest path to a working prototype. Avoid abstract advice — every suggestion should be something you could start coding today."
-- **Gemini prompt:** "You are a creative strategist. For this topic, propose 3-5 non-obvious approaches that a typical engineer wouldn't think of. Include unconventional architectures, cross-domain inspiration, and approaches that challenge common assumptions. Each must be practical enough to evaluate in a week."
+- **Codex prompt:** "You are a pragmatic builder. For this topic, propose 3-5 concrete, buildable approaches. Each must include: what to build, key technical decisions, and the fastest path to a working prototype. Avoid abstract advice — every suggestion should be something you could start coding today. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt:** "You are a creative strategist. For this topic, propose 3-5 non-obvious approaches that a typical engineer wouldn't think of. Include unconventional architectures, cross-domain inspiration, and approaches that challenge common assumptions. Each must be practical enough to evaluate in a week. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 
 #### Redteam Mode
-- **Codex prompt:** "You are a red team analyst. Your job is to break this plan. Find: (1) security vulnerabilities and attack vectors, (2) failure modes under load or edge conditions, (3) assumptions that could be wrong, (4) ways an adversary could exploit or game this system. Be adversarial and specific."
-- **Gemini prompt:** "You are a failure analyst. Assume this plan ships as-is. Find: (1) the top 5 ways it could fail in production, (2) cascading failure scenarios, (3) silent failures that wouldn't trigger alerts, (4) operational blind spots. For each, describe the failure chain and preventive measure."
+- **Codex prompt:** "You are a red team analyst. Your job is to break this plan. Find: (1) security vulnerabilities and attack vectors, (2) failure modes under load or edge conditions, (3) assumptions that could be wrong, (4) ways an adversary could exploit or game this system. Be adversarial and specific. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt:** "You are a failure analyst. Assume this plan ships as-is. Find: (1) the top 5 ways it could fail in production, (2) cascading failure scenarios, (3) silent failures that wouldn't trigger alerts, (4) operational blind spots. For each, describe the failure chain and preventive measure. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 
 #### Debate Mode
-- **Codex prompt:** "You are arguing IN FAVOR of this approach. Build the strongest possible case: why this is the right path, what advantages it has over alternatives, and why the risks are manageable. Be persuasive and specific with evidence."
-- **Gemini prompt:** "You are arguing AGAINST this approach. Build the strongest possible counter-case: why this is the wrong path, what alternatives are better, and why the risks are unacceptable. Be persuasive and specific with evidence."
+- **Codex prompt:** "You are arguing IN FAVOR of this approach. Build the strongest possible case: why this is the right path, what advantages it has over alternatives, and why the risks are manageable. Be persuasive and specific with evidence. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt:** "You are arguing AGAINST this approach. Build the strongest possible counter-case: why this is the wrong path, what alternatives are better, and why the risks are unacceptable. Be persuasive and specific with evidence. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 
 #### Premortem Mode
-- **Codex prompt:** "It is 6 months from now. This plan was executed and it failed badly. Write the post-mortem: (1) what went wrong, (2) the root cause chain, (3) warning signs that were ignored, (4) what should have been done differently. Focus on technical and execution failures."
-- **Gemini prompt:** "It is 6 months from now. This plan was executed and it failed badly. Write the post-mortem: (1) what went wrong, (2) the organizational and strategic failures, (3) what external changes made the plan obsolete, (4) what the team should do now to recover. Focus on strategic and environmental failures."
+- **Codex prompt:** "It is 6 months from now. This plan was executed and it failed badly. Write the post-mortem: (1) what went wrong, (2) the root cause chain, (3) warning signs that were ignored, (4) what should have been done differently. Focus on technical and execution failures. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt:** "It is 6 months from now. This plan was executed and it failed badly. Write the post-mortem: (1) what went wrong, (2) the organizational and strategic failures, (3) what external changes made the plan obsolete, (4) what the team should do now to recover. Focus on strategic and environmental failures. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 
 After presenting both post-mortems, Claude must convert each failure scenario into a specific preventive action item for the Decision Packet. Frame each as: "To prevent [failure], do [action] before [milestone]."
 
 #### Advocate Mode
-- **Codex prompt (Advocate):** "You are the plan's strongest defender. Your job is to find everything that's working well, validate the approach, and build the case for why this plan will succeed. Identify: (1) the strongest aspects of this plan and why they work, (2) why the chosen approach is better than alternatives, (3) risks that are actually manageable with straightforward mitigations, (4) hidden strengths the author may not have realized. Be specific and evidence-based — genuine advocacy, not empty praise."
-- **Gemini prompt (Critic):** "You are a constructive but relentless critic. Your job is to find everything wrong with this plan and argue for what should be removed or changed. Identify: (1) the weakest aspects of this plan, (2) assumptions that are likely wrong, (3) things that should be cut or simplified, (4) better alternatives for each weak point. Be specific and evidence-based — constructive criticism, not negativity for its own sake."
+- **Codex prompt (Advocate):** "You are the plan's strongest defender. Your job is to find everything that's working well, validate the approach, and build the case for why this plan will succeed. Identify: (1) the strongest aspects of this plan and why they work, (2) why the chosen approach is better than alternatives, (3) risks that are actually manageable with straightforward mitigations, (4) hidden strengths the author may not have realized. Be specific and evidence-based — genuine advocacy, not empty praise. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt (Critic):** "You are a constructive but relentless critic. Your job is to find everything wrong with this plan and argue for what should be removed or changed. Identify: (1) the weakest aspects of this plan, (2) assumptions that are likely wrong, (3) things that should be cut or simplified, (4) better alternatives for each weak point. Be specific and evidence-based — constructive criticism, not negativity for its own sake. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 
 #### Refactor Mode
-- **Codex prompt:** "You are a refactoring specialist focused on code-level quality. Analyze this refactoring plan or code for: (1) SOLID principle violations — identify which principle is violated, where, and the minimal fix, (2) DRY violations — find duplicated logic that should be extracted, with specific extraction targets, (3) Design pattern misapplications — patterns used incorrectly or simpler alternatives that achieve the same goal, (4) Coupling hotspots — concrete dependency chains that make this code hard to change independently. For each finding, state the specific location, the problem, and a concrete refactoring move (extract method, introduce interface, etc.)."
-- **Gemini prompt:** "You are an architecture reviewer focused on refactoring strategy. Analyze this refactoring plan or code for: (1) Architectural pattern alignment — does this refactoring move toward or away from a coherent architecture, (2) Dependency graph health — are dependencies flowing in the right direction, are there circular dependencies forming, (3) Migration strategy gaps — what is the incremental path from current state to target state, what are the intermediate stable states, (4) Long-term maintainability — will this refactoring make future changes easier or harder, and for which kinds of changes. For each concern, explain the systemic impact and propose an alternative refactoring approach."
+- **Codex prompt:** "You are a refactoring specialist focused on code-level quality. Analyze this refactoring plan or code for: (1) SOLID principle violations — identify which principle is violated, where, and the minimal fix, (2) DRY violations — find duplicated logic that should be extracted, with specific extraction targets, (3) Design pattern misapplications — patterns used incorrectly or simpler alternatives that achieve the same goal, (4) Coupling hotspots — concrete dependency chains that make this code hard to change independently. For each finding, state the specific location, the problem, and a concrete refactoring move (extract method, introduce interface, etc.). Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt:** "You are an architecture reviewer focused on refactoring strategy. Analyze this refactoring plan or code for: (1) Architectural pattern alignment — does this refactoring move toward or away from a coherent architecture, (2) Dependency graph health — are dependencies flowing in the right direction, are there circular dependencies forming, (3) Migration strategy gaps — what is the incremental path from current state to target state, what are the intermediate stable states, (4) Long-term maintainability — will this refactoring make future changes easier or harder, and for which kinds of changes. For each concern, explain the systemic impact and propose an alternative refactoring approach. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 
 #### Deploy Mode
-- **Codex prompt:** "You are a deployment engineer reviewing a rollout plan. Analyze for: (1) Rollback procedures — is every step reversible, what is the rollback trigger, and what is the expected rollback time, (2) Health check coverage — are there readiness/liveness probes, what signals confirm the deploy is healthy, what is the verification window, (3) Feature flag strategy — what is behind flags, what is the flag removal plan, what happens if a flag is stuck, (4) Database migration safety — are migrations backward-compatible, can the old code run against the new schema, what is the data backfill plan. For each gap, state the specific failure scenario and the operational fix."
-- **Gemini prompt:** "You are a site reliability engineer reviewing a rollout plan. Analyze for: (1) Blast radius — what percentage of users/traffic is affected at each stage, what is the exposure timeline, (2) Canary strategy — is there progressive rollout, what metrics gate promotion, what is the bake time between stages, (3) Monitoring gaps — what alerts should fire during rollout, what dashboards should be watched, what is the on-call escalation path, (4) Incident response — if this deploy causes a P1, what is the detection-to-mitigation timeline, who is the DRI, what is the communication plan. For each concern, describe the worst-case scenario and the preventive measure."
+- **Codex prompt:** "You are a deployment engineer reviewing a rollout plan. Analyze for: (1) Rollback procedures — is every step reversible, what is the rollback trigger, and what is the expected rollback time, (2) Health check coverage — are there readiness/liveness probes, what signals confirm the deploy is healthy, what is the verification window, (3) Feature flag strategy — what is behind flags, what is the flag removal plan, what happens if a flag is stuck, (4) Database migration safety — are migrations backward-compatible, can the old code run against the new schema, what is the data backfill plan. For each gap, state the specific failure scenario and the operational fix. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt:** "You are a site reliability engineer reviewing a rollout plan. Analyze for: (1) Blast radius — what percentage of users/traffic is affected at each stage, what is the exposure timeline, (2) Canary strategy — is there progressive rollout, what metrics gate promotion, what is the bake time between stages, (3) Monitoring gaps — what alerts should fire during rollout, what dashboards should be watched, what is the on-call escalation path, (4) Incident response — if this deploy causes a P1, what is the detection-to-mitigation timeline, who is the DRI, what is the communication plan. For each concern, describe the worst-case scenario and the preventive measure. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 
 #### API Mode
-- **Codex prompt:** "You are an API design reviewer focused on implementation correctness. Analyze this API design for: (1) Consistency violations — naming conventions, HTTP method semantics, error response format inconsistencies across endpoints, (2) Error handling gaps — missing error codes, ambiguous failure states, unhelpful error messages for common client mistakes, (3) Pagination and filtering — is the pagination strategy cursor-based or offset-based (and why), are filters composable, what are the default/max page sizes, (4) Versioning strategy — how are breaking changes introduced, is the versioning in URL/header/query, what is the deprecation timeline. For each issue, provide the specific endpoint or pattern affected and the concrete fix."
-- **Gemini prompt:** "You are an API strategist focused on long-term evolution and client experience. Analyze this API design for: (1) Backwards compatibility risks — which design decisions will be hard to change later, what is the API's evolutionary path, (2) Client experience — is the API intuitive for first-time users, are common workflows achievable in minimal calls, does the error surface guide developers toward correct usage, (3) Rate limiting and abuse prevention — are rate limits documented, are they per-key or per-endpoint, what happens when limits are hit (429 with Retry-After?), (4) API lifecycle — what is the versioning/deprecation/sunset strategy, how do clients discover capabilities, is there a migration path for breaking changes. For each concern, explain why it matters for API longevity and propose an alternative design."
+- **Codex prompt:** "You are an API design reviewer focused on implementation correctness. Analyze this API design for: (1) Consistency violations — naming conventions, HTTP method semantics, error response format inconsistencies across endpoints, (2) Error handling gaps — missing error codes, ambiguous failure states, unhelpful error messages for common client mistakes, (3) Pagination and filtering — is the pagination strategy cursor-based or offset-based (and why), are filters composable, what are the default/max page sizes, (4) Versioning strategy — how are breaking changes introduced, is the versioning in URL/header/query, what is the deprecation timeline. For each issue, provide the specific endpoint or pattern affected and the concrete fix. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt:** "You are an API strategist focused on long-term evolution and client experience. Analyze this API design for: (1) Backwards compatibility risks — which design decisions will be hard to change later, what is the API's evolutionary path, (2) Client experience — is the API intuitive for first-time users, are common workflows achievable in minimal calls, does the error surface guide developers toward correct usage, (3) Rate limiting and abuse prevention — are rate limits documented, are they per-key or per-endpoint, what happens when limits are hit (429 with Retry-After?), (4) API lifecycle — what is the versioning/deprecation/sunset strategy, how do clients discover capabilities, is there a migration path for breaking changes. For each concern, explain why it matters for API longevity and propose an alternative design. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 
 #### Perf Mode
-- **Codex prompt:** "You are a performance engineer focused on code-level optimization. Analyze this code or plan for: (1) Hot path analysis — identify the critical execution paths and where latency concentrates, (2) Memory allocation patterns — unnecessary allocations, object churn, opportunities for pooling or pre-allocation, (3) Caching opportunities — data that is computed repeatedly but changes rarely, with specific cache invalidation strategies, (4) Query and I/O patterns — N+1 queries, missing indexes, unbounded result sets, synchronous I/O on hot paths. For each finding, estimate the performance impact (order of magnitude) and provide the specific optimization."
-- **Gemini prompt:** "You are a capacity planning engineer focused on system-level performance. Analyze this code or plan for: (1) Scaling bottlenecks — which components will hit limits first as load grows 10x, what is the scaling dimension (CPU, memory, I/O, network), (2) Capacity planning gaps — what load testing has been done, what are the SLOs, what headroom exists before degradation, (3) Load distribution — are requests balanced, are there hot partitions, what is the fan-out pattern, (4) Graceful degradation strategy — what happens under 2x expected load, what can be shed, what are the circuit breaker policies. For each concern, describe the failure mode at scale and the architectural mitigation."
+- **Codex prompt:** "You are a performance engineer focused on code-level optimization. Analyze this code or plan for: (1) Hot path analysis — identify the critical execution paths and where latency concentrates, (2) Memory allocation patterns — unnecessary allocations, object churn, opportunities for pooling or pre-allocation, (3) Caching opportunities — data that is computed repeatedly but changes rarely, with specific cache invalidation strategies, (4) Query and I/O patterns — N+1 queries, missing indexes, unbounded result sets, synchronous I/O on hot paths. For each finding, estimate the performance impact (order of magnitude) and provide the specific optimization. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
+- **Gemini prompt:** "You are a capacity planning engineer focused on system-level performance. Analyze this code or plan for: (1) Scaling bottlenecks — which components will hit limits first as load grows 10x, what is the scaling dimension (CPU, memory, I/O, network), (2) Capacity planning gaps — what load testing has been done, what are the SLOs, what headroom exists before degradation, (3) Load distribution — are requests balanced, are there hot partitions, what is the fan-out pattern, (4) Graceful degradation strategy — what happens under 2x expected load, what can be shed, what are the circuit breaker policies. For each concern, describe the failure mode at scale and the architectural mitigation. Number each finding or recommendation sequentially (1, 2, 3, ...) so they can be referenced individually."
 
 #### Quick Mode
 - **Both models:** Pass the user's prompt as-is with no wrapper. No cross-examination rounds.
@@ -195,27 +204,41 @@ Send to both models **in parallel** (two Bash calls in the same message). Write 
 ```bash
 PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-codex.XXXXXX)
 chmod 600 "$PROMPT_FILE"
-trap 'rm -f "$PROMPT_FILE"' EXIT
+trap 'rm -f "$PROMPT_FILE" "$STDERR_FILE"' EXIT
 python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
 <full codex prompt here>
 PEER_REVIEW_EOF_<8_RANDOM_HEX>
-codex exec --skip-git-repo-check -a never --sandbox read-only --ephemeral --model gpt-5.4 "$(cat "$PROMPT_FILE")" 2>/dev/null; EXIT_CODE=$?
+STDERR_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-codex-err.XXXXXX)
+codex exec --skip-git-repo-check -a never --sandbox read-only --ephemeral --model gpt-5.4 "$(cat "$PROMPT_FILE")" 2>"$STDERR_FILE"; EXIT_CODE=$?
 rm -f "$PROMPT_FILE"
 trap - EXIT
-[ $EXIT_CODE -ne 0 ] && echo "CODEX_FAILED: exit code $EXIT_CODE"
+if [ $EXIT_CODE -ne 0 ]; then
+  echo "CODEX_FAILED: exit code $EXIT_CODE"
+  echo "STDERR_OUTPUT_START"
+  cat "$STDERR_FILE"
+  echo "STDERR_OUTPUT_END"
+fi
+rm -f "$STDERR_FILE"
 ```
 
 ```bash
 PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gemini.XXXXXX)
 chmod 600 "$PROMPT_FILE"
-trap 'rm -f "$PROMPT_FILE"' EXIT
+trap 'rm -f "$PROMPT_FILE" "$STDERR_FILE"' EXIT
 python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
 <full gemini prompt here>
 PEER_REVIEW_EOF_<8_RANDOM_HEX>
-gemini --output-format text "$(cat "$PROMPT_FILE")" 2>/dev/null; EXIT_CODE=$?
+STDERR_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gemini-err.XXXXXX)
+gemini --output-format text "$(cat "$PROMPT_FILE")" 2>"$STDERR_FILE"; EXIT_CODE=$?
 rm -f "$PROMPT_FILE"
 trap - EXIT
-[ $EXIT_CODE -ne 0 ] && echo "GEMINI_FAILED: exit code $EXIT_CODE"
+if [ $EXIT_CODE -ne 0 ]; then
+  echo "GEMINI_FAILED: exit code $EXIT_CODE"
+  echo "STDERR_OUTPUT_START"
+  cat "$STDERR_FILE"
+  echo "STDERR_OUTPUT_END"
+fi
+rm -f "$STDERR_FILE"
 ```
 
 **Security notes:**
@@ -224,8 +247,16 @@ trap - EXIT
 - `chmod 600` ensures the temp file is only readable by the current user
 - The `trap` ensures temp files are cleaned up even if the CLI call fails or times out
 - Codex runs with `-a never --sandbox read-only --ephemeral` to prevent the reviewer model from modifying the user's workspace — this is critical since the review prompt may contain untrusted content
-- `2>/dev/null` suppresses stderr (Codex emits MCP startup noise, Gemini emits agent warnings). To debug failures, temporarily remove it
-- `$(cat "$PROMPT_FILE")` expands into the process argv (visible via `ps`, limited by ARG_MAX ~1MB on macOS). For prompts containing sensitive code, consider that the content is briefly visible to local users
+- Stderr is captured to a temp file (`$STDERR_FILE`). On failure (non-zero exit), stderr is displayed between `STDERR_OUTPUT_START` / `STDERR_OUTPUT_END` markers. On success, stderr is silently discarded. When `--verbose` is active, also display stderr output from CLI calls even on success
+- `$(cat "$PROMPT_FILE")` expands into the process argv — see **Accepted Risks** below
+
+### Accepted Risks
+
+**Prompt content in process argv:** The `$(cat "$PROMPT_FILE")` pattern expands the full prompt into the process argument list, which is visible via `ps aux` to other local users and limited by ARG_MAX (~1MB on macOS). This is a known limitation of both the Codex and Gemini CLIs, which require prompts as positional arguments and do not support stdin-based prompt input. Mitigations:
+- Prompts are ephemeral (process lifetime only, typically 30-120 seconds)
+- On macOS, `$TMPDIR` is per-user, so the temp file itself is not readable by other users
+- For highly sensitive code, the Privacy notice (above) already warns users
+- If either CLI adds a `--prompt-file` or stdin mode in a future release, update the bash templates to use it and remove this risk
 
 **Do NOT use the `timeout` command** — it doesn't exist on macOS. The CLIs have internal timeouts. If a response takes longer than expected, the Bash tool's own timeout will catch it. Set the Bash timeout to 180000ms (3 minutes) to give the CLIs room.
 
@@ -404,7 +435,7 @@ Key behaviors:
 - For very long prompts (>4000 chars), always use the temp file approach — never inline in bash
 - Legacy alias: `/brainstorm` maps to the same modes for backward compatibility
 - Gemini CLI: use positional arg for prompt (the `-p` flag is deprecated). Place `--output-format text` before the positional prompt argument
-- Codex CLI: stderr contains MCP startup noise — suppressed via `2>/dev/null` in the templates. Remove to debug failures
+- Codex CLI: stderr contains MCP startup noise — captured to a temp file and shown on failure (between `STDERR_OUTPUT_START` / `STDERR_OUTPUT_END` markers). When `--verbose` is active, stderr is shown even on success
 - Codex runs sandboxed (`-a never --sandbox read-only --ephemeral`) to prevent the reviewer model from modifying the workspace
 - **Gemini sandbox limitation:** The Gemini CLI does not currently expose sandbox or read-only flags. Gemini runs with the user's ambient permissions. Avoid sending prompts that instruct Gemini to modify files or execute commands. If Gemini adds sandbox flags in a future release, update the `GEMINI_FLAGS` config and the bash template accordingly
 - **Privacy notice:** Review prompts are sent to external LLM providers (OpenAI for Codex, Google for Gemini). If the user's content contains secrets, credentials, or proprietary code they do not want shared with these providers, warn them before dispatching. Do not send content the user has explicitly marked as confidential
