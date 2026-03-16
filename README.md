@@ -95,6 +95,8 @@ GEMINI_MODEL: auto         # "auto" = discover latest; or pin e.g. "gemini-3-pro
 ROUNDS: 2                  # cross-examination rounds (1-4)
 ```
 
+By default, models are set to `auto` — the skill queries `copilot --help` at runtime and selects the latest available GPT and Gemini models. No manual updates needed when new models ship. To pin a specific model, replace `auto` with the model name. Per-invocation overrides (`--gpt-model`, `--gemini-model`) always take precedence.
+
 ### Rounds
 
 The `ROUNDS` setting controls how many times the models exchange critiques:
