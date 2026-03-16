@@ -11,15 +11,15 @@ A multi-round orchestration skill that dispatches prompts to GPT and Gemini via 
 These values live at the top of the skill so they're easy to update when new models ship.
 
 ```
-GPT_MODEL: gpt-5.4
-GEMINI_MODEL: gemini-3-pro-preview
+GPT_MODEL: auto         # "auto" = discover latest from copilot --help; or pin e.g. "gpt-5.4"
+GEMINI_MODEL: auto      # "auto" = discover latest from copilot --help; or pin e.g. "gemini-3-pro-preview"
 COPILOT_FLAGS: -s --no-ask-user
 ROUNDS: 2              # cross-examination rounds (1-4); 1 = no cross-exam, 2 = default, 3-4 = deep deliberation
 TIMEOUT_HARD: 120      # seconds — hard cutoff per CLI call
 MAX_CROSSEXAM_CHARS: 12000  # truncate peer output before feeding into cross-exam to prevent token explosion
 ```
 
-When updating models, change `GPT_MODEL` and `GEMINI_MODEL` to the latest available tiers. Run `copilot --help` and check the `--model` choices to see available models. Set `ROUNDS` higher (3-4) for complex architectural decisions where you want thorough back-and-forth deliberation. Use 1 for quick feedback without cross-examination.
+When `GPT_MODEL` or `GEMINI_MODEL` is set to `auto`, the skill discovers the latest available model at runtime (see Step 0.1). To pin a specific model, replace `auto` with the model name (e.g., `gpt-5.4`). The `--gpt-model` and `--gemini-model` per-invocation flags always override both `auto` and pinned values. Set `ROUNDS` higher (3-4) for complex architectural decisions where you want thorough back-and-forth deliberation. Use 1 for quick feedback without cross-examination.
 
 ## Modes
 
@@ -59,6 +59,22 @@ command -v copilot >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: copilot CLI not inst
 
 If the Copilot CLI is missing, tell the user and provide the install command. Do not attempt to call a missing CLI.
 
+### Step 0.1 — Model Discovery
+
+If `GPT_MODEL` or `GEMINI_MODEL` is set to `auto` (and no `--gpt-model` / `--gemini-model` override was given), discover the latest models by running:
+
+```bash
+copilot --help 2>&1 | sed -n '/--model <model>/,/^  --/p' | grep -oE '"[^"]+"' | tr -d '"'
+```
+
+From the output, select:
+- **GPT:** The model matching `^gpt-` with the highest version number, excluding `-codex` and `-mini` variants. (e.g., if choices include `gpt-5.4`, `gpt-5.3-codex`, `gpt-5-mini`, select `gpt-5.4`)
+- **Gemini:** The model matching `^gemini-` with the highest version number. (e.g., `gemini-3-pro-preview`)
+
+Store the resolved model names for use in Step 2 bash templates. If discovery fails (no matches found), fall back to `gpt-5.4` and `gemini-3-pro-preview` and warn: "Model discovery failed — using fallback models."
+
+Report the resolved models briefly: "Using GPT: {model}, Gemini: {model}"
+
 ### Step 0.5 — Context Enrichment
 
 If the user's prompt references a specific file path (e.g., `/peer-review review the auth module in src/auth/handler.ts`), automatically read the file content and append it to the prompt sent to both models. Format the appended context as:
@@ -84,8 +100,8 @@ Extract the subcommand and user's prompt. Parse and remove any flags before disp
 - **`--rounds N`**: Override the default ROUNDS config for this invocation. N must be an integer 1-4; ignore invalid values and fall back to the default. Quick and single-target modes always use 1 round regardless of `--rounds`.
 - **`--verbose`**: Show exact prompts sent to each model (in a collapsed `<details>` block), raw round outputs for every round (not just highlights), and character counts per CLI call.
 - **`--quiet`**: Skip "Claude's Take", individual model response sections, and cross-examination highlights. Show ONLY the Decision Packet and the cherry-pick menu. `--verbose` and `--quiet` are mutually exclusive; if both appear, warn and default to normal.
-- **`--gpt-model <model>`**: Override `GPT_MODEL` for this invocation. The model name must match `[a-zA-Z0-9._-]+` — reject and warn on invalid names. Pass via `--model <model>` in the GPT bash template.
-- **`--gemini-model <model>`**: Override `GEMINI_MODEL` for this invocation. The model name must match `[a-zA-Z0-9._-]+` — reject and warn on invalid names. Pass via `--model <model>` in the Gemini bash template.
+- **`--gpt-model <model>`**: Override the resolved GPT model for this invocation (skips auto-discovery for GPT). The model name must match `[a-zA-Z0-9._-]+` — reject and warn on invalid names. Pass via `--model <model>` in the GPT bash template.
+- **`--gemini-model <model>`**: Override the resolved Gemini model for this invocation (skips auto-discovery for Gemini). The model name must match `[a-zA-Z0-9._-]+` — reject and warn on invalid names. Pass via `--model <model>` in the Gemini bash template.
 - **`--branch [name]`**: For diff mode only. Compare against a branch instead of staged/unstaged changes. If `--branch` is given without a name, default to `main`. Example: `/peer-review diff --branch feature-x` runs `git diff feature-x...HEAD`. Ignored for non-diff modes.
 
 Remove all parsed flags from the prompt text before building role-differentiated prompts.
@@ -215,7 +231,7 @@ trap 'rm -f "$PROMPT_FILE"' EXIT
 python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
 <full GPT prompt here>
 PEER_REVIEW_EOF_<8_RANDOM_HEX>
-copilot -p "$(cat "$PROMPT_FILE")" -s --no-ask-user --model gpt-5.4 2>/dev/null; EXIT_CODE=$?
+copilot -p "$(cat "$PROMPT_FILE")" -s --no-ask-user --model <RESOLVED_GPT_MODEL> 2>/dev/null; EXIT_CODE=$?
 rm -f "$PROMPT_FILE"
 trap - EXIT
 [ $EXIT_CODE -ne 0 ] && echo "GPT_FAILED: exit code $EXIT_CODE"
@@ -228,7 +244,7 @@ trap 'rm -f "$PROMPT_FILE"' EXIT
 python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
 <full Gemini prompt here>
 PEER_REVIEW_EOF_<8_RANDOM_HEX>
-copilot -p "$(cat "$PROMPT_FILE")" -s --no-ask-user --model gemini-3-pro-preview 2>/dev/null; EXIT_CODE=$?
+copilot -p "$(cat "$PROMPT_FILE")" -s --no-ask-user --model <RESOLVED_GEMINI_MODEL> 2>/dev/null; EXIT_CODE=$?
 rm -f "$PROMPT_FILE"
 trap - EXIT
 [ $EXIT_CODE -ne 0 ] && echo "GEMINI_FAILED: exit code $EXIT_CODE"

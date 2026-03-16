@@ -90,7 +90,8 @@ Legacy alias: `/brainstorm` maps to the same modes.
 Edit the Configuration block in `SKILL.md` to customize:
 
 ```
-GPT_MODEL: gpt-5.4        # update when new models ship
+GPT_MODEL: auto            # "auto" = discover latest; or pin e.g. "gpt-5.4"
+GEMINI_MODEL: auto         # "auto" = discover latest; or pin e.g. "gemini-3-pro-preview"
 ROUNDS: 2                  # cross-examination rounds (1-4)
 ```
 
