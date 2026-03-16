@@ -7,7 +7,7 @@ Thanks for your interest in contributing to peer-review. This is a small, focuse
 All modes are defined in `SKILL.md`. To add one, you need to touch three places in that file:
 
 1. **Modes table** (Step 0 area) — add a row with the invocation, behavior, and default rounds
-2. **Step 1 prompts** — add a new section under "Parse Mode and Build Prompts" with role-differentiated prompts for both Codex and Gemini. Follow the existing pattern: Codex gets an implementation/tactical persona, Gemini gets a strategic/architectural persona. The two prompts should produce genuinely different perspectives, not two versions of the same answer.
+2. **Step 1 prompts** — add a new section under "Parse Mode and Build Prompts" with role-differentiated prompts for both GPT and Gemini. Follow the existing pattern: GPT gets an implementation/tactical persona, Gemini gets a strategic/architectural persona. The two prompts should produce genuinely different perspectives, not two versions of the same answer.
 3. **Step 5 template** — if your mode needs a custom summary section (like debate's "Judge's Verdict" or advocate's "Advocate vs. Critic Summary"), add it under Step 5. Otherwise the default Decision Packet template applies.
 
 Update the mode list in the skill's `description` frontmatter so Claude Code knows when to trigger the skill for the new mode.
@@ -45,7 +45,7 @@ Keep changes to `SKILL.md` minimal and focused. The skill file is the entire run
 
 The CLI invocation templates in SKILL.md contain several security measures that must be preserved:
 
-- **Codex sandbox flags** (`-a never --sandbox read-only --ephemeral`) — prevents the reviewer model from modifying the user's workspace. Never remove these.
+- **Copilot CLI flags** (`--no-ask-user`, `-s`) — ensures non-interactive dispatch. Note: unlike the former Codex CLI, Copilot CLI has no sandbox equivalent. See SECURITY-REVIEW.md F3.
 - **Randomized heredoc delimiters** — the `PEER_REVIEW_EOF_<8_RANDOM_HEX>` pattern must generate fresh random hex on every invocation. This prevents user input from injecting the delimiter to escape the heredoc.
 - **Temp file cleanup** — every temp file must have a `trap` for cleanup on failure and explicit `rm -f` after use.
 - **`chmod 600`** on temp files — restricts read access to the current user.

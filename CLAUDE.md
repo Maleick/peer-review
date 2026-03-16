@@ -20,8 +20,9 @@ If onboarding hasn't been performed, run `mcp__plugin_serena_serena__onboarding`
 ## Key Patterns
 
 - **3-touch pattern** for adding modes: (1) modes table, (2) Step 1 prompts, (3) Step 5 template
-- **Security invariants** that must be preserved: heredoc randomization, Python one-liner temp file writes, DATA START/DATA END markers, Codex sandbox flags, trap cleanup
-- **Role differentiation**: Codex = tactical/implementation lens, Gemini = strategic/architectural lens
+- **Security invariants** that must be preserved: heredoc randomization, Python one-liner temp file writes, DATA START/DATA END markers, Copilot CLI `--no-ask-user` flags, trap cleanup
+- **Role differentiation**: GPT = tactical/implementation lens, Gemini = strategic/architectural lens
+- **CLI dependency**: All external model calls go through `copilot` CLI (GitHub Copilot CLI), authenticated via `gh` CLI or `copilot login`
 
 ## Testing
 

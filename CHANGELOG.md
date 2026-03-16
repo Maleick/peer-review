@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] — 2026-03-16
+
+### Breaking
+
+- **Codex + Gemini CLIs replaced by GitHub Copilot CLI** — single CLI handles both GPT and Gemini model access. Install via `brew install github/gh/copilot-cli`. Auth via `gh auth login` or `copilot login`. Requires a GitHub Copilot subscription.
+- `--codex-model` flag renamed to `--gpt-model`
+- `/peer-review codex` single-model mode renamed to `/peer-review gpt`
+
+### Changed
+
+- Single CLI dependency (Copilot CLI) replaces two separate CLIs (Codex CLI + Gemini CLI)
+- Simplified auth: GitHub OAuth via `gh` CLI or `copilot login` instead of separate auth flows
+- All model dispatch uses `copilot -p ... -s --no-ask-user --model <model>`
+- Copilot CLI flags (`--no-ask-user`, `-s`) replace Codex sandbox flags (`-a never --sandbox read-only --ephemeral`). Note: Copilot CLI has no sandbox equivalent — see SECURITY-REVIEW.md
+
 ## [0.5.0] — 2025-03-09
 
 ### Added

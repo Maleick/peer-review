@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The peer-review skill orchestrates multi-LLM peer review by dispatching prompts to external CLIs (Codex and Gemini). The prior security hardening commit addressed several concerns. This review audited 25+ checks across 7 categories and found **7 findings** — 1 High, 2 Medium, 2 Low, 1 Info, and 1 Accepted risk. All actionable findings have been remediated.
+The peer-review skill orchestrates multi-LLM peer review by dispatching prompts to external CLIs (GPT and Gemini via the GitHub Copilot CLI). The prior security hardening commit addressed several concerns. This review audited 25+ checks across 7 categories and found **7 findings** — 1 High, 2 Medium, 2 Low, 1 Info, and 1 Accepted risk. All actionable findings have been remediated.
 
 ---
 
@@ -30,12 +30,13 @@ The peer-review skill orchestrates multi-LLM peer review by dispatching prompts 
 **Impact:** Token explosion in rounds 3-4, potential context window exhaustion, injection-via-volume attacks.
 **Fix:** Replaced the vague paragraph with a mandatory 3-step procedure: measure length, truncate at boundary, append truncation notice. Added explicit "Never pass the untruncated output" instruction.
 
-### F3 — Gemini CLI Has No Sandbox Flags [MEDIUM] — DOCUMENTED
+### F3 — Copilot CLI Has No Sandbox Flags [MEDIUM] — DOCUMENTED
 
-**Location:** SKILL.md line 121 (gemini bash template)
-**Issue:** Unlike Codex (`-a never --sandbox read-only --ephemeral`), the Gemini CLI has no equivalent sandbox or read-only mode. Gemini runs with the user's ambient filesystem and network permissions.
-**Impact:** A prompt-injected instruction to Gemini could potentially modify files or make network requests.
-**Fix:** Added explicit documentation in Notes section warning about this limitation, with guidance to avoid sending prompts that instruct Gemini to modify files. Includes forward-looking note to update when Gemini adds sandbox flags.
+**Location:** SKILL.md (GPT and Gemini bash templates)
+**Issue:** The GitHub Copilot CLI has no equivalent to the former Codex sandbox flags (`-a never --sandbox read-only --ephemeral`). Both GPT and Gemini dispatch via `copilot -p ... -s --no-ask-user`, which runs with the user's ambient filesystem and network permissions. The `-s` (silent/streaming) and `--no-ask-user` flags control output behavior, not sandboxing.
+**Impact:** A prompt-injected instruction could potentially modify files or make network requests through the Copilot CLI.
+**Fix:** Documented limitation in Notes section. Provider routing now goes through GitHub Copilot infrastructure rather than direct OpenAI/Google APIs.
+**Security regression from v0.5.0:** The Codex CLI's sandbox provided meaningful isolation. The Copilot CLI migration removes this layer. Mitigations remain: heredoc randomization, DATA START/DATA END framing, and privacy warnings.
 
 ### F4 — Temp Files Use /tmp Instead of $TMPDIR [LOW] — FIXED
 
@@ -47,7 +48,7 @@ The peer-review skill orchestrates multi-LLM peer review by dispatching prompts 
 ### F5 — No Secret Leakage Warning [INFO] — FIXED
 
 **Location:** SKILL.md Notes section
-**Issue:** No mention that review prompts are sent to external LLM providers (OpenAI, Google). Users might unknowingly send secrets or proprietary code.
+**Issue:** No mention that review prompts are sent to external LLM providers via GitHub Copilot infrastructure. Users might unknowingly send secrets or proprietary code.
 **Impact:** Unintentional data exposure to third parties.
 **Fix:** Added Privacy notice in Notes section instructing Claude to warn users before dispatching content containing secrets or credentials.
 
@@ -60,8 +61,8 @@ The peer-review skill orchestrates multi-LLM peer review by dispatching prompts 
 
 ### F7 — PATH-Based CLI Resolution [LOW] — ACCEPTED
 
-**Location:** SKILL.md lines 50-51 (preflight checks), 108, 121 (CLI invocations)
-**Issue:** `codex` and `gemini` are resolved via `$PATH`. A malicious binary earlier in `$PATH` could intercept.
+**Location:** SKILL.md (preflight checks and CLI invocations)
+**Issue:** `copilot` is resolved via `$PATH`. A malicious binary earlier in `$PATH` could intercept.
 **Why accepted:** Standard practice for CLI tools. Mitigating this would require hardcoded absolute paths, which are less portable. The preflight check (`command -v`) at least confirms the binary exists.
 
 ---
@@ -73,13 +74,13 @@ The peer-review skill orchestrates multi-LLM peer review by dispatching prompts 
 | 1a | Python stdin pipe safety (no argv injection) | PASS |
 | 1c | `$(cat "$PROMPT_FILE")` command substitution (double-quoted, no re-expansion) | PASS |
 | 1d | No unquoted variable expansions in bash templates | PASS |
-| 1e | Codex sandbox flags (`-a never --sandbox read-only --ephemeral`) are maximally restrictive | PASS |
+| 1e | Copilot CLI flags (`--no-ask-user`, `-s`) used for non-interactive dispatch. **Note:** Copilot CLI has no sandbox equivalent to Codex's `-a never --sandbox read-only --ephemeral` — prompts execute with the user's ambient permissions. See F3. | PASS (flags present) |
 | 2a | DATA START/DATA END framing consistent across all rounds | PASS |
 | 2d | Cross-exam prompts include instruction-following resistance language | PASS |
 | 3a | `mktemp` provides atomic temp file creation (POSIX guarantee) | PASS |
 | 3b | `chmod 600` applied immediately after mktemp, before Python write | PASS |
 | 3c | `trap ... EXIT` covers SIGTERM/SIGINT on macOS zsh | PASS |
-| 4a | Codex sandbox flags are the tightest available options | PASS |
+| 4a | Copilot CLI dispatch flags (`-s --no-ask-user`) are the available non-interactive options. No sandbox equivalent exists (see F3). | PASS |
 | 4c | `settings.local.json` scoped narrowly (only specific `wc` command + serena activation) | PASS |
 | 5a | Mode parsing — invalid modes handled gracefully | PASS |
 | 5b | Prompt size — `$(cat "$PROMPT_FILE")` bounded by ARG_MAX (~1MB on macOS) | PASS |

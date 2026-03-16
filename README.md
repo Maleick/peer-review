@@ -4,18 +4,17 @@ A Claude Code skill that orchestrates multi-LLM peer review. Send any plan, idea
 
 ## What It Does
 
-Instead of getting one AI's opinion, peer-review dispatches your prompt to multiple external LLMs (currently Codex/GPT and Gemini), has them critique each other's responses across configurable rounds of deliberation, and synthesizes everything into a structured Decision Packet with numbered action items you can accept, cherry-pick, or discard.
+Instead of getting one AI's opinion, peer-review dispatches your prompt to multiple external LLMs (currently GPT and Gemini via the GitHub Copilot CLI), has them critique each other's responses across configurable rounds of deliberation, and synthesizes everything into a structured Decision Packet with numbered action items you can accept, cherry-pick, or discard.
 
 Each model gets a role-differentiated prompt designed to produce genuinely different perspectives — not three versions of the same answer.
 
 ## Requirements
 
 - **Claude Code** — the orchestration environment that runs the skill ([claude.ai/download](https://claude.ai/download))
-- **Codex CLI** — OpenAI's CLI tool, authenticated via OAuth
-- **Gemini CLI** — Google's CLI tool, authenticated via OAuth
+- **GitHub Copilot CLI** — provides access to both GPT and Gemini models. Requires a GitHub Copilot subscription.
 - **macOS** with zsh (not tested on Windows or Linux — contributions welcome)
 
-Both Codex and Gemini CLIs must be installed and authenticated before using the skill. The skill uses OAuth-based authentication (no API keys needed).
+The Copilot CLI must be installed and authenticated before using the skill. Auth is handled via `gh auth login` or `copilot login` (no API keys needed).
 
 ## Installation
 
@@ -49,7 +48,7 @@ ln -s "$(pwd)/peer-review/.claude/skills/peer-review" ~/.claude/skills/peer-revi
 /peer-review perf <performance issue>          # performance analysis & bottleneck ID
 /peer-review diff                              # review staged/unstaged git changes
 /peer-review quick <prompt>                    # fast single-round opinion
-/peer-review codex <prompt>                    # single-model: Codex only
+/peer-review gpt <prompt>                    # single-model: GPT only
 /peer-review gemini <prompt>                   # single-model: Gemini only
 /peer-review help                              # list all modes and options
 /peer-review history                           # show previous reviews in session
@@ -63,7 +62,7 @@ Legacy alias: `/brainstorm` maps to the same modes.
 --rounds N              # override cross-examination rounds (1-4)
 --verbose               # show exact prompts sent and raw outputs
 --quiet                 # skip model sections, show only Decision Packet
---codex-model <model>   # override Codex model (e.g., gpt-5.4)
+--gpt-model <model>     # override GPT model (e.g., gpt-5.4)
 --gemini-model <model>  # override Gemini model
 ```
 
@@ -91,7 +90,7 @@ Legacy alias: `/brainstorm` maps to the same modes.
 Edit the Configuration block in `SKILL.md` to customize:
 
 ```
-CODEX_MODEL: gpt-5.4      # update when new models ship
+GPT_MODEL: gpt-5.4        # update when new models ship
 ROUNDS: 2                  # cross-examination rounds (1-4)
 ```
 
@@ -120,14 +119,14 @@ Higher rounds cost proportionally more API calls but produce deeper analysis. 2 
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| `PREFLIGHT_FAIL: codex CLI not installed` | Codex CLI not in PATH | Install: `npm install -g @anthropic-ai/codex` then authenticate with `codex auth` |
+| `PREFLIGHT_FAIL: copilot CLI not installed` | Copilot CLI not in PATH | Install: `brew install github/gh/copilot-cli` then authenticate with `gh auth login` or `copilot login` |
 | `PREFLIGHT_FAIL: gemini CLI not installed` | Gemini CLI not in PATH | Install: `npm install -g @anthropic-ai/gemini` then authenticate with `gemini auth` |
-| `CODEX_FAILED: exit code 1` | Usually auth expiry or rate limit | Run `codex auth` to re-authenticate. Check `codex --version` for compatibility |
+| `GPT_FAILED: exit code 1` | Usually auth expiry or rate limit | Run `gh auth login` or `copilot login` to re-authenticate. Check `copilot --version` for compatibility |
 | `GEMINI_FAILED: exit code 1` | Auth expiry, rate limit, or agent warnings | Run `gemini auth` to re-authenticate. Warnings about unrecognized keys are harmless |
 | Empty output from a model | Model returned nothing | Retry with `/peer-review quick` for simpler dispatch, or use single-target mode |
 | Timeout / no response | CLI hanging on large prompt | Set Bash timeout to 180000ms. Consider splitting prompt into smaller pieces |
 
-**Tip:** Use `/peer-review codex <prompt>` or `/peer-review gemini <prompt>` to test each CLI independently when debugging.
+**Tip:** Use `/peer-review gpt <prompt>` or `/peer-review gemini <prompt>` to test each CLI independently when debugging.
 
 ## Example Output Structure
 
@@ -137,7 +136,7 @@ Higher rounds cost proportionally more API calls but produce deeper analysis. 2 
 ### Claude's Take
 > [Brief analysis leveraging codebase context the external models don't have]
 
-### Codex (Implementation Lens)
+### GPT (Implementation Lens)
 [Concrete risks, edge cases, severity ratings, fixes]
 
 ### Gemini (Strategic Lens)
@@ -151,8 +150,8 @@ Recommended path: ...
 Top 3 risks to mitigate: ...
 Actionable items:
 1. [HIGH CONFIDENCE] ... (source: consensus)
-2. [MEDIUM] ... (source: Codex)
-3. [LOW] ... (source: Gemini, challenged by Codex)
+2. [MEDIUM] ... (source: GPT)
+3. [LOW] ... (source: Gemini, challenged by GPT)
 
 ### Priority Matrix
 | | High Impact | Low Impact |
