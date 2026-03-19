@@ -17,18 +17,12 @@ Thumbs.db
 .vscode/
 .idea/
 
-# ── GSD baseline (auto-generated) ──
-.gsd/activity/
-.gsd/runtime/
-.gsd/worktrees/
-.gsd/auto.lock
-.gsd/metrics.json
-.gsd/completed-units.json
-.gsd/STATE.md
-.gsd/gsd.db
-.gsd/DISCUSSION-MANIFEST.json
-.gsd/milestones/**/*-CONTINUE.md
-.gsd/milestones/**/continue.md
+# ── Tool/agent artifacts ──
+.gsd/
+.bg-shell/
+.serena/
+.codex/
+.claude/settings.local.json
 *.code-workspace
 .env
 .env.*

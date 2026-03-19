@@ -5,7 +5,7 @@
 Always initialize Serena at the start of a session when working on this project:
 
 ```
-mcp__plugin_serena_serena__activate_project with project: "/opt/peer-review"
+mcp__plugin_serena_serena__activate_project with project: "/Users/maleick/Projects/peer-review"
 mcp__plugin_serena_serena__check_onboarding_performed
 ```
 

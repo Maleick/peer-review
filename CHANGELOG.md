@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] — 2026-03-17
+
+### Changed
+
+- **Prompt dispatch uses stdin** instead of command-line arguments (`copilot < "$PROMPT_FILE"` replaces `copilot -p "$(cat "$PROMPT_FILE")"`). Eliminates prompt exposure in `ps` output and removes the ARG_MAX size limit on prompts
+- **Stderr captured to temp file** instead of discarded with `2>/dev/null`. Failure diagnostics now include stderr content alongside exit codes
+- **DATA markers randomized per-dispatch** — cross-examination and file context markers now use `DATA_<8_RANDOM_HEX>_START` / `DATA_<8_RANDOM_HEX>_END` (same randomization pattern as heredoc delimiters). Prevents model output from containing the exact marker string to escape the data boundary
+- **Diff mode uses intelligent chunking** — large diffs are split by file/hunk with priority ordering (most-changed files first, source over config/test), and excluded files are listed explicitly. Replaces naive 8000-char truncation
+- **Pre-flight checks verify auth status** — `gh auth status` is checked in addition to `command -v copilot`, catching expired or missing auth before dispatch instead of mid-run
+
+### Fixed
+
+- Fixed stray `n()` call at end of `grade_all.py` that would crash the grading script
+
 ## [0.6.0] — 2026-03-16
 
 ### Breaking
