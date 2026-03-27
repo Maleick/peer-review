@@ -79,7 +79,27 @@ Legacy alias: `/brainstorm` maps to the same modes.
 --gpt-model <model>       # override GPT model for this run
 --claude-model <model>    # override Claude model for this run
 --branch [name]           # for diff mode: compare against a branch (default: main)
+--steelman                # steelman cross-exam: models strengthen each other's arguments before critiquing
+--iterate [N]             # autoresearch loop: review → auto-fix → re-review → converge (default: 3 iterations)
 ```
+
+### Steelman Mode (`--steelman`)
+
+Instead of adversarial cross-examination (find weaknesses), steelman mode asks each model to first make the **strongest possible version** of the other's argument before critiquing it. This produces deeper analysis — models can't dismiss arguments they've just strengthened. No extra cost (same number of CLI calls).
+
+### Iteration Mode (`--iterate`)
+
+Turns peer-review into a convergence loop. After each review, Claude Opus auto-accepts HIGH CONFIDENCE items, applies fixes to the file, and re-reviews. Repeats until no new HIGH items appear or max iterations reached.
+
+```
+/peer-review refactor src/auth.ts --iterate 3
+
+Iteration 1: 9 items (3 HIGH) → auto-apply 3 fixes
+Iteration 2: 5 items (1 HIGH, 4 RESOLVED) → auto-apply 1 fix
+Iteration 3: 2 items (0 HIGH) → convergence achieved
+```
+
+You can type `stop` at any iteration to halt, or `override` to switch to manual cherry-pick. Regressions (more items than before) trigger an automatic pause.
 
 ## Configuration
 
