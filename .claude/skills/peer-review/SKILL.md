@@ -1,5 +1,5 @@
 ---
-description: "Multi-LLM peer review — send plans, ideas, or code to GPT and Claude (via GitHub Copilot CLI) for structured peer review with cross-examination, then cherry-pick feedback. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Also trigger when the user says /brainstorm (legacy alias). Supports --rounds N, --verbose, --quiet, --gpt-model, --claude-model, --steelman, and --iterate flags."
+description: "Multi-LLM peer review — send plans, ideas, or code to GPT and Claude (via GitHub Copilot CLI) for structured peer review with cross-examination, then cherry-pick feedback. Decision Packet v2 with tiered output (Ship Blocker / Before Next Sprint / Backlog), dependency arrows, effort estimates, conflict flags, and JSON export. Tie-breaker model resolves HIGH CONFIDENCE deadlocks. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Supports parallel multi-mode dispatch (--modes redteam,deploy,perf) with collision detection. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Also trigger when the user says /brainstorm (legacy alias). Supports --rounds N, --verbose, --quiet, --gpt-model, --claude-model, --steelman, --iterate, --json, and --modes flags."
 ---
 
 # /peer-review — Multi-LLM Peer Review & Brainstorm
@@ -125,6 +125,9 @@ Extract the subcommand and user's prompt. Parse and remove any flags before disp
 - **`--branch [name]`**: For diff mode only. Compare against a branch instead of staged/unstaged changes. If `--branch` is given without a name, default to `main`. Example: `/peer-review diff --branch feature-x` runs `git diff feature-x...HEAD`. Ignored for non-diff modes.
 - **`--steelman`**: Use steelman cross-examination instead of adversarial. In steelman mode, each model must first make the strongest possible version of the peer's argument before critiquing it. Produces deeper analysis with fewer strawman dismissals. Costs no extra CLI calls. Ignored for quick/single-target modes.
 - **`--iterate [N]`**: Autoresearch-style convergence loop. After each review, the orchestrating Claude auto-cherry-picks the best items, applies HIGH CONFIDENCE fixes to file context, re-reviews, and repeats until convergence or N iterations (default 3, max 5). Requires file context (a referenced file or diff). The user is shown each iteration's decisions and can override at any point. See Step 7.
+- **`--json`**: After presenting the normal Decision Packet, also emit a machine-readable JSON export of all items. See Step 5.1 for the JSON schema. Useful for piping into issue trackers, dashboards, or CI gates.
+- **`--modes <mode1,mode2,...>`**: Run multiple modes in parallel on the same prompt. Comma-separated, cap at 4 modes. Each mode runs its own full review pipeline (Steps 2-5) independently. Results are merged into a unified Decision Packet with cross-mode collision detection. See Step 8 for details. Incompatible with quick/single-target modes and `--iterate`.
+- **`--modes preset:release`**: Shorthand for `--modes redteam,deploy,perf`. Additional presets: `preset:security` = `redteam,api`, `preset:quality` = `review,refactor,perf`.
 
 Remove all parsed flags from the prompt text before building role-differentiated prompts.
 
@@ -217,9 +220,24 @@ If the user invokes `/peer-review help`, do NOT dispatch to any CLI. Instead, pr
 | `diff`             | Review staged git changes         | `/peer-review diff`                                            |
 | `quick`            | Fast second opinion (1 round)     | `/peer-review quick Is this regex safe?`                       |
 
-**Options:** `--rounds N` (1-4), `--verbose`, `--quiet`, `--gpt-model <model>`, `--claude-model <model>`, `--branch [name]` (diff only), `--steelman` (steelman cross-exam), `--iterate [N]` (convergence loop, requires file context)
+**Options:** `--rounds N` (1-4), `--verbose`, `--quiet`, `--gpt-model <model>`, `--claude-model <model>`, `--branch [name]` (diff only), `--steelman` (steelman cross-exam), `--iterate [N]` (convergence loop, requires file context), `--json` (emit Decision Packet as JSON), `--modes <m1,m2,...>` (parallel multi-mode, cap 4)
+**Presets:** `--modes preset:release` (redteam,deploy,perf), `preset:security` (redteam,api), `preset:quality` (review,refactor,perf)
 **Single-target:** `/peer-review gpt <prompt>`, `/peer-review claude <prompt>`
 **Other:** `/peer-review history` (show recent reviews), `/brainstorm` (legacy alias)
+
+### Decision Packet v2
+
+The Decision Packet now uses **tiered output** with dependency tracking:
+
+- **Tier 1 — Ship Blockers** 🚫 Must fix before merge/deploy
+- **Tier 2 — Before Next Sprint** ⏳ Fix soon, not blocking
+- **Tier 3 — Backlog** 📋 Defer unless time allows
+
+Each item includes: severity, effort estimate (~XS to ~XL), dependency arrows, and conflict flags. Use `--json` to export the packet for issue trackers or CI gates.
+
+### Tie-Breaker
+
+When both models hold HIGH CONFIDENCE contradictory positions and neither concedes during cross-exam, a lightweight tie-breaker model (gpt-5.4-mini) arbitrates with both positions stripped of model identity.
 
 ### Choosing a Mode
 
@@ -431,6 +449,63 @@ Each round dispatches to both models in parallel, just like Round 1. If one mode
 
 This is critical for rounds 3-4 where outputs compound — without truncation, prompt size can grow geometrically and exceed model context windows or enable injection-via-volume attacks.
 
+### Step 4.5 — Tie-Breaker for HIGH CONFIDENCE Deadlocks
+
+After cross-examination completes (or after Round 1 if ROUNDS=1), scan both models' outputs for **deadlocks**: cases where both models hold HIGH CONFIDENCE positions that directly contradict each other. A deadlock exists when:
+
+1. Both models assign high/critical severity to the same aspect of the plan, AND
+2. Their recommendations are mutually exclusive (e.g., "you must use X" vs "you must not use X"), AND
+3. Neither model conceded during cross-examination (both maintained their position)
+
+If no deadlocks are detected, skip this step.
+
+If one or more deadlocks are detected, dispatch a **tie-breaker model** (`gpt-5.4-mini`) with both positions. The tie-breaker sees both arguments stripped of model identity and renders a verdict.
+
+**Tie-breaker prompt:**
+
+```
+You are a neutral technical arbitrator. Two senior reviewers disagree on the following issue. Read both positions and render a verdict.
+
+CONTEXT:
+{user's original prompt, truncated to 2000 chars}
+
+ISSUE:
+{brief description of the deadlocked topic}
+
+POSITION A:
+{model 1's argument, stripped of model identity, truncated to 3000 chars}
+
+POSITION B:
+{model 2's argument, stripped of model identity, truncated to 3000 chars}
+
+Render your verdict:
+1. Which position is stronger and why (2-3 sentences)
+2. Is there a synthesis that captures the best of both? (1-2 sentences)
+3. Final recommendation: A, B, or SYNTHESIS
+```
+
+**Dispatch** using the same bash template as Step 2, with `--model gpt-5.4-mini`. Use the same security practices (temp file, stdin pipe, randomized heredoc, stderr capture, trap cleanup).
+
+**Present tie-breaker results** in the Step 5 output:
+
+```markdown
+### Tie-Breaker Verdicts
+
+| Deadlock | Topic   | Position A (GPT) | Position B (Claude) | Verdict           | Reasoning          |
+| -------- | ------- | ---------------- | ------------------- | ----------------- | ------------------ |
+| D1       | {topic} | {summary}        | {summary}           | A / B / SYNTHESIS | {1-line reasoning} |
+```
+
+**Rules:**
+
+- Strip model identity from positions before sending to the tie-breaker — present as "Position A" and "Position B" with randomized assignment (flip a coin for which model is A vs B) to prevent model-name bias
+- The tie-breaker's verdict is advisory — it sets confidence in the Decision Packet but the user makes the final call
+- Deadlocked items that the tie-breaker resolves get tagged `**[DEADLOCK RESOLVED → {verdict}]**` in the Decision Packet
+- Items the tie-breaker calls SYNTHESIS get both models' recommendations merged into a combined action item
+- Maximum 3 deadlocks per review — if more exist, resolve the highest-severity ones and note the remainder
+- If the tie-breaker CLI call fails, fall back to tagging the items as `**[DEADLOCK — unresolved]**` and let the user decide
+- Quick and single-target modes skip tie-breaking entirely
+
 ### Step 5 — Present Structured Results
 
 Format the results using the appropriate template for the mode.
@@ -477,53 +552,134 @@ Before building the Decision Packet, scan both models' Round 1 outputs for subst
 
 Consensus items get automatic **[HIGH CONFIDENCE]** in the Decision Packet and should be prioritized in the Priority Matrix. If no substantive overlaps exist, omit this section.
 
-### Decision Packet
+### Decision Packet v2
 
 **Summary:** {N} items total — {n_critical} critical, {n_high} high, {n_medium} medium, {n_low} low | {n_consensus} consensus items | Sources: {n_gpt} GPT-only, {n_claude} Claude-only, {n_both} both
 
 **Recommended path:** [single clear recommendation based on all perspectives]
 **Top 3 risks to mitigate:** [numbered, with specific mitigations]
 **Open questions:** [things that need more investigation before proceeding]
-**Actionable items** (grouped by category, tagged by source and confidence):
 
-Group items under the applicable category headers below. Omit empty categories. Items are numbered sequentially across all categories so cherry-picking works naturally.
+#### Tier 1 — Ship Blockers 🚫
 
-**Security & Safety**
+Items that MUST be resolved before merge/deploy. These are critical/high severity AND high confidence.
 
-1. [action item] _(GPT)_ **[HIGH CONFIDENCE]**
+| #   | Item          | Severity | Effort | Source    | Confidence | Depends On | Conflicts With |
+| --- | ------------- | -------- | ------ | --------- | ---------- | ---------- | -------------- |
+| 1   | [action item] | critical | ~S     | GPT       | HIGH       | —          | —              |
+| 2   | [action item] | high     | ~M     | consensus | HIGH       | #1         | —              |
 
-**Architecture & Design**
+#### Tier 2 — Before Next Sprint ⏳
 
-2. [action item] _(Claude)_ **[MEDIUM CONFIDENCE]**
-3. [action item] _(consensus)_ **[HIGH CONFIDENCE]** — both models flagged this
+Items to address soon but not blocking the current ship. High/medium severity, medium+ confidence.
 
-**Performance & Scaling**
+| #   | Item          | Severity | Effort | Source | Confidence | Depends On | Conflicts With |
+| --- | ------------- | -------- | ------ | ------ | ---------- | ---------- | -------------- |
+| 3   | [action item] | high     | ~L     | Claude | MEDIUM     | —          | #5             |
+| 4   | [action item] | medium   | ~S     | GPT    | MEDIUM     | —          | —              |
 
-4. [action item] _(GPT)_ **[LOW CONFIDENCE]**
+#### Tier 3 — Backlog 📋
 
-**Testing & Quality**
+Nice-to-have items, low severity or low confidence. Defer unless time allows.
 
-**Operations & Deployment**
+| #   | Item          | Severity | Effort | Source | Confidence | Depends On | Conflicts With |
+| --- | ------------- | -------- | ------ | ------ | ---------- | ---------- | -------------- |
+| 5   | [action item] | low      | ~XS    | Claude | LOW        | —          | #3             |
 
-**Developer Experience**
+**Tier assignment rules:**
 
-**Data Integrity**
+- **Ship Blocker:** severity is critical OR (severity is high AND confidence is HIGH)
+- **Before Next Sprint:** severity is high with MEDIUM confidence, OR severity is medium with HIGH/MEDIUM confidence
+- **Backlog:** severity is low, OR confidence is LOW regardless of severity
+
+**Effort estimates** — t-shirt sizes based on model descriptions and orchestrator's codebase knowledge:
+
+- **~XS** — one-liner or config change (<15 min)
+- **~S** — small, focused change (15-60 min)
+- **~M** — moderate change spanning 2-3 files (1-4 hours)
+- **~L** — significant change requiring design thought (half day to full day)
+- **~XL** — large change, likely multi-PR (>1 day)
+
+**Dependency arrows** (`Depends On`): Item N depends on item M = M must be resolved first. Detect when one item's fix would be invalidated or complicated by another item's fix. Mark `—` if no dependencies.
+
+**Conflict flags** (`Conflicts With`): Two items contradict each other — fixing both as described is impossible or counterproductive. When conflicts exist, append a note after the tier tables:
+```
+
+⚠️ CONFLICT: #3 vs #5 — {brief description of the contradiction}. Resolve by: {suggested resolution}.
+
+```
 
 Confidence indicators based on cross-examination convergence:
 
-- **[HIGH CONFIDENCE]** — Both models independently identified this (consensus), or the issue survived cross-examination without challenge
-- **[MEDIUM CONFIDENCE]** — One model identified it, the other did not challenge it during cross-exam
-- **[LOW CONFIDENCE]** — One model identified it, and the other explicitly disagreed or weakened the argument during cross-exam
+- **HIGH** — Both models independently identified this (consensus), or the issue survived cross-examination without challenge
+- **MEDIUM** — One model identified it, the other did not challenge it during cross-exam
+- **LOW** — One model identified it, and the other explicitly disagreed or weakened the argument during cross-exam
 
 ### Priority Matrix
 
-|                 | Low Effort                  | High Effort               |
-| --------------- | --------------------------- | ------------------------- |
-| **High Impact** | [items to do first]         | [items to plan carefully] |
-| **Low Impact**  | [quick wins if time allows] | [skip or defer]           |
+|                 | Low Effort (~XS/~S)         | High Effort (~M/~L/~XL)    |
+| --------------- | --------------------------- | --------------------------- |
+| **High Impact** | [items to do first]         | [items to plan carefully]   |
+| **Low Impact**  | [quick wins if time allows] | [skip or defer]             |
 
-Place each numbered item from the Decision Packet into the appropriate quadrant based on severity ratings, model assessments, and your knowledge of the user's codebase.
+Place each numbered item from the Decision Packet into the appropriate quadrant. Use effort estimates and severity ratings directly — no re-evaluation needed.
 ```
+
+#### Step 5.1 — JSON Export (if `--json` is set)
+
+After presenting the normal Decision Packet, emit a fenced JSON block containing all items in machine-readable format. Also write to a temp file so the user can pipe it elsewhere.
+
+```json
+{
+  "version": "2.0",
+  "mode": "{mode}",
+  "title": "{short title}",
+  "timestamp": "{ISO 8601}",
+  "models": { "gpt": "{GPT_MODEL}", "claude": "{CLAUDE_MODEL}" },
+  "rounds": {N},
+  "summary": {
+    "total": {N},
+    "critical": {n}, "high": {n}, "medium": {n}, "low": {n},
+    "consensus": {n},
+    "sources": { "gpt": {n}, "claude": {n}, "both": {n} }
+  },
+  "items": [
+    {
+      "id": 1,
+      "tier": "ship_blocker|before_next_sprint|backlog",
+      "item": "description text",
+      "severity": "critical|high|medium|low",
+      "effort": "XS|S|M|L|XL",
+      "source": "gpt|claude|consensus",
+      "confidence": "HIGH|MEDIUM|LOW",
+      "depends_on": [],
+      "conflicts_with": [],
+      "category": "Security & Safety|Architecture & Design|..."
+    }
+  ],
+  "conflicts": [
+    { "items": [3, 5], "description": "...", "resolution": "..." }
+  ],
+  "recommended_path": "...",
+  "top_risks": ["..."],
+  "open_questions": ["..."]
+}
+```
+
+Write the JSON file:
+
+```bash
+python3 -c "
+import json, sys, os, time
+data = json.loads(sys.stdin.read())
+path = os.path.join(os.environ.get('TMPDIR', '/tmp'), f'peer-review-packet-{int(time.time())}.json')
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+print(path)
+"
+```
+
+Report: "JSON packet written to `{path}`. Use `cat {path} | jq` to inspect, or pipe to your issue tracker."
 
 #### For debate mode specifically, add:
 
@@ -630,7 +786,7 @@ For each iteration (1 to N, default 3, max 5):
 
 1. **RUN REVIEW** — Execute Steps 2-5 as normal (dispatch, cross-exam, synthesis). Produce Decision Packet with numbered items.
 
-2. **AUTO-CHERRY-PICK (orchestrating Claude decides)** — Accept all HIGH CONFIDENCE items automatically. Accept all HIGH CONFIDENCE items, including consensus items (which are always HIGH CONFIDENCE per Step 5). Hold LOW CONFIDENCE and single-source MEDIUM items for user override. Present the decision:
+2. **AUTO-CHERRY-PICK (orchestrating Claude decides)** — Accept all Tier 1 (Ship Blocker) items automatically — these are HIGH CONFIDENCE by definition. Accept Tier 2 items with HIGH CONFIDENCE. Hold Tier 2 MEDIUM items and all Tier 3 items for user override. Respect dependency arrows: if item N depends on item M, apply M first. If conflicting items are both auto-picked, pause and present the conflict for user resolution. Present the decision:
 
 ```markdown
 **Iteration {N} — Auto-pick:** Accepting items {list} (HIGH CONFIDENCE).
@@ -647,23 +803,23 @@ Holding items {list} for your review.
    - **[REGRESSION]** — item count increased (warn user, consider reverting)
 
 5. **DECIDE: CONTINUE OR STOP**
-   - STOP if: no HIGH/CRITICAL items remain in the Decision Packet — neither new nor persistent (convergence achieved)
+   - STOP if: Tier 1 is empty — no Ship Blockers remain (convergence achieved)
    - STOP if: item count increased vs prior iteration (regression — auto-pause)
    - STOP if: max iterations reached
-   - CONTINUE if: new HIGH/CRITICAL items remain
+   - CONTINUE if: Tier 1 items remain (Ship Blockers still present)
 
 **Iteration summary output:**
 
 ```markdown
 ### Iteration Summary
 
-| Iteration | Items Found | HIGH | Applied | Resolved | New |
-| --------- | ----------- | ---- | ------- | -------- | --- |
-| 1         | 9           | 3    | 3       | —        | —   |
-| 2         | 5           | 1    | 1       | 4        | 1   |
-| 3         | 2           | 0    | 0       | 3        | 0   |
+| Iteration | Items Found | Tier 1 | Tier 2 | Tier 3 | Applied | Resolved | New |
+| --------- | ----------- | ------ | ------ | ------ | ------- | -------- | --- |
+| 1         | 9           | 3      | 4      | 2      | 3       | —        | —   |
+| 2         | 5           | 1      | 2      | 2      | 1       | 4        | 1   |
+| 3         | 2           | 0      | 1      | 1      | 0       | 3        | 0   |
 
-**Convergence achieved** after 3 iterations. 0 HIGH/CRITICAL items remain.
+**Convergence achieved** after 3 iterations. 0 Ship Blockers remain.
 **Persistent items** (survived all iterations): items 4, 7 — review for acceptance.
 **Total changes applied:** 4 fixes across 3 iterations. [Show full diff]
 
@@ -683,6 +839,132 @@ Holding items {list} for your review.
 - **Diff mode iteration:** If file context came from `--iterate diff`, after applying fixes, re-run the same `git diff` command from Step 1 to capture the updated diff as context for the next iteration. Warn the user that staged changes will reflect applied fixes. **Important:** When iterating on staged changes (`git diff --cached`), use `git diff HEAD` instead — this captures both staged and unstaged changes, so fixes applied to the working tree are visible in subsequent iterations
 - All changes are applied via Claude's edit tools — fully visible in the conversation
 - The original file state is preserved; `revert all` restores it completely
+
+### Step 8 — Parallel Multi-Mode Dispatch (if `--modes` is set)
+
+When `--modes` is active, the skill runs multiple review modes simultaneously on the same prompt. This replaces the single-mode flow (Steps 1-7) with a parallel orchestration layer.
+
+**Validation:**
+
+- Parse mode list from `--modes` flag. If a preset is used (`preset:release`, `preset:security`, `preset:quality`), expand it to its mode list
+- Validate each mode exists in the modes table. Reject unknown modes with a warning
+- Cap at 4 modes — if more than 4 are specified, take the first 4 and warn
+- `--modes` is incompatible with: quick, single-target (gpt/claude), help, history, and `--iterate`. Warn and fall back to single-mode if combined
+
+**Preset expansions:**
+
+| Preset            | Expands To             |
+| ----------------- | ---------------------- |
+| `preset:release`  | `redteam,deploy,perf`  |
+| `preset:security` | `redteam,api`          |
+| `preset:quality`  | `review,refactor,perf` |
+
+**Execution:**
+
+1. **Pre-flight** — Run Steps 0-0.5 once (shared across all modes)
+2. **Parallel dispatch** — For each mode, execute Steps 1-5 independently. All modes share the same prompt and file context. Each mode produces its own Decision Packet. Use the Agent tool to dispatch each mode as a background subagent if available, otherwise run sequentially
+3. **Per-mode output** — Present each mode's results under its own header:
+
+```markdown
+## Multi-Mode Review — "{short title}"
+
+**Modes:** {mode1}, {mode2}, {mode3}
+**Models:** GPT: {GPT_MODEL}, Claude: {CLAUDE_MODEL}
+
+---
+
+### Mode: {mode1}
+
+{full Step 5 output for this mode, including its own Decision Packet}
+
+---
+
+### Mode: {mode2}
+
+{full Step 5 output for this mode}
+```
+
+4. **Cross-mode collision detection** — After all modes complete, scan their Decision Packets for collisions:
+
+```markdown
+### Cross-Mode Analysis
+
+#### Collisions
+
+Items from different modes that address the same concern but recommend conflicting actions:
+
+| Collision | Mode A Item                          | Mode B Item                                       | Conflict                                | Resolution                            |
+| --------- | ------------------------------------ | ------------------------------------------------- | --------------------------------------- | ------------------------------------- |
+| X1        | redteam #2: "Disable debug endpoint" | deploy #4: "Use debug endpoint for canary health" | Same endpoint, opposite recommendations | Disable in prod, allow in canary only |
+
+#### Reinforcements
+
+Items from different modes that independently flag the same concern (highest confidence):
+
+| #   | Concern   | Flagged By            | Combined Severity     |
+| --- | --------- | --------------------- | --------------------- |
+| R1  | {concern} | redteam #1, deploy #3 | critical (reinforced) |
+
+#### Coverage Gaps
+
+Concerns that NO mode covered but that the combination of modes suggests:
+
+- {gap description} — suggested by the intersection of {mode1} and {mode2} findings
+```
+
+5. **Unified Decision Packet** — Merge all mode-specific items into a single tiered Decision Packet (same v2 format). Rules for merging:
+   - Reinforced items (flagged by 2+ modes) get automatic Tier 1 / Ship Blocker status
+   - Collisions get `⚠️ CROSS-MODE CONFLICT` tags and require user resolution
+   - Items are renumbered sequentially across the unified packet
+   - Each item retains its source mode tag: _(redteam #2)_, _(deploy #4)_, etc.
+   - Apply the same tier assignment rules from the standard Decision Packet
+   - If `--json` is set, the JSON export includes a `modes` array and `cross_mode` section with collisions and reinforcements
+
+6. **Cherry-pick** — Present the unified Decision Packet with the standard Step 6 accept/discard workflow. Cherry-picking works across all modes with unified numbering
+
+**Cost awareness:** Multi-mode dispatch multiplies API calls. For N modes with R rounds, the cost is `N * 2 * R` CLI calls (+ tie-breakers if any). Display the expected call count before dispatching: "Running {N} modes × {R} rounds = {total} CLI calls. Proceed?"
+
+### Step 9 — Session Pattern Tracking
+
+Track review patterns across the session to surface recurring themes. This is lightweight — no persistent storage, just in-memory tracking during the conversation.
+
+**On every review completion** (after Step 5 or Step 8), log the review to a session-scoped history:
+
+```
+REVIEW_LOG[]:
+  id: sequential integer
+  mode: {mode or comma-separated modes}
+  title: {short title}
+  timestamp: {ISO 8601}
+  item_count: {total items in Decision Packet}
+  tier1_count: {Ship Blockers}
+  tier2_count: {Before Next Sprint}
+  tier3_count: {Backlog}
+  categories_hit: [list of non-empty category headers]
+  accepted_items: [item IDs cherry-picked by user]
+  discarded_items: [item IDs discarded by user]
+```
+
+**Pattern detection** — When the session has 3+ reviews logged, check for:
+
+1. **Recurring categories**: If the same category (e.g., "Security & Safety") appears as Tier 1 in 3+ reviews, surface it: "Pattern detected: Security concerns have appeared as Ship Blockers in {N} of your {total} reviews this session. Consider a dedicated security audit."
+
+2. **Model bias**: If one model's items are consistently accepted over the other's (>70% of accepted items from a single source across 3+ reviews), note it: "Pattern: You've accepted {N}% of GPT's suggestions vs {M}% of Claude's. This might indicate {model}'s perspective is more aligned with your priorities."
+
+3. **Effort distribution**: If most accepted items are ~XS/~S and ~L/~XL items are consistently discarded, note it: "Pattern: You're consistently picking quick fixes over larger structural changes. The deferred items may accumulate."
+
+**Presentation** — Pattern alerts appear at the top of the Decision Packet when detected, in a collapsible section:
+
+```markdown
+<details>
+<summary>📊 Session Patterns (3 detected)</summary>
+
+1. **Recurring security concerns** — Ship Blockers in Security & Safety category appeared in 4/5 reviews
+2. **GPT preference** — 78% of accepted items sourced from GPT
+3. **Quick-fix bias** — 90% of accepted items are ~XS/~S effort; 0% of ~L/~XL items accepted
+
+</details>
+```
 
 ## Notes
 
