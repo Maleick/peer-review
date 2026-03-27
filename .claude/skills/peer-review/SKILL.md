@@ -1,5 +1,5 @@
 ---
-description: "Multi-LLM peer review — send plans, ideas, or code to GPT and Claude (via GitHub Copilot CLI) for structured peer review with cross-examination, then cherry-pick feedback. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Also trigger when the user says /brainstorm (legacy alias). Supports --rounds N, --verbose, --quiet, --gpt-model, and --claude-model flags."
+description: "Multi-LLM peer review — send plans, ideas, or code to GPT and Claude (via GitHub Copilot CLI) for structured peer review with cross-examination, then cherry-pick feedback. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Also trigger when the user says /brainstorm (legacy alias). Supports --rounds N, --verbose, --quiet, --gpt-model, --claude-model, --steelman, and --iterate flags."
 ---
 
 # /peer-review — Multi-LLM Peer Review & Brainstorm
@@ -59,10 +59,10 @@ command -v copilot >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: copilot CLI not inst
 ```
 
 ```bash
-gh auth status 2>&1 | grep -q "Logged in" || echo "PREFLIGHT_FAIL: GitHub auth not configured (run: gh auth login)"
+gh auth status 2>&1 | grep -q "Logged in" || copilot --version >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: GitHub auth not configured (run: gh auth login or copilot login)"
 ```
 
-If the Copilot CLI is missing, tell the user and provide the install command. If auth is not configured, tell the user to run `gh auth login` or `copilot login`. Do not attempt to call a missing or unauthenticated CLI.
+If the Copilot CLI is missing, tell the user and provide the install command. If auth fails both checks (neither `gh auth status` nor `copilot --version` succeeds), tell the user to authenticate. Note: auth may come from `gh` CLI, `copilot login`, or environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`) — any one is sufficient.
 
 ### Step 0.1 — Model Validation
 
@@ -70,7 +70,7 @@ Report the resolved models briefly: "Using GPT: {GPT_MODEL}, Claude: {CLAUDE_MOD
 
 If a `--gpt-model` or `--claude-model` override was given, use that instead of the pinned config value for this invocation. Validate the model name matches `[a-zA-Z0-9._-]+` — reject and warn on invalid names.
 
-**Important:** The CLAUDE_MODEL must be a different model from the orchestrating Claude instance to avoid self-review bias. If the orchestrating instance is Opus, pin the reviewer to Sonnet, and vice versa.
+**Important:** The CLAUDE_MODEL must not be the same model ID as the orchestrating Claude instance, to avoid self-review bias. Check the orchestrating model and ensure CLAUDE_MODEL differs (e.g., if orchestrating is `claude-opus-4.6`, use `claude-sonnet-4.6` as reviewer, and vice versa).
 
 ### Step 0.2 — Privacy Gate
 
@@ -124,7 +124,7 @@ Extract the subcommand and user's prompt. Parse and remove any flags before disp
 - **`--claude-model <model>`**: Override the resolved Claude model for this invocation. The model name must match `[a-zA-Z0-9._-]+` — reject and warn on invalid names. Pass via `--model <model>` in the Claude bash template.
 - **`--branch [name]`**: For diff mode only. Compare against a branch instead of staged/unstaged changes. If `--branch` is given without a name, default to `main`. Example: `/peer-review diff --branch feature-x` runs `git diff feature-x...HEAD`. Ignored for non-diff modes.
 - **`--steelman`**: Use steelman cross-examination instead of adversarial. In steelman mode, each model must first make the strongest possible version of the peer's argument before critiquing it. Produces deeper analysis with fewer strawman dismissals. Costs no extra CLI calls. Ignored for quick/single-target modes.
-- **`--iterate [N]`**: Autoresearch-style convergence loop. After each review, Claude Opus auto-cherry-picks the best items, applies HIGH CONFIDENCE fixes to file context, re-reviews, and repeats until convergence or N iterations (default 3, max 5). Requires file context (a referenced file or diff). The user is shown each iteration's decisions and can override at any point. See Step 7.
+- **`--iterate [N]`**: Autoresearch-style convergence loop. After each review, the orchestrating Claude auto-cherry-picks the best items, applies HIGH CONFIDENCE fixes to file context, re-reviews, and repeats until convergence or N iterations (default 3, max 5). Requires file context (a referenced file or diff). The user is shown each iteration's decisions and can override at any point. See Step 7.
 
 Remove all parsed flags from the prompt text before building role-differentiated prompts.
 
@@ -217,7 +217,7 @@ If the user invokes `/peer-review help`, do NOT dispatch to any CLI. Instead, pr
 | `diff`             | Review staged git changes         | `/peer-review diff`                                            |
 | `quick`            | Fast second opinion (1 round)     | `/peer-review quick Is this regex safe?`                       |
 
-**Options:** `--rounds N` (1-4), `--verbose`, `--quiet`, `--gpt-model <model>`, `--claude-model <model>`, `--branch [name]` (for diff)
+**Options:** `--rounds N` (1-4), `--verbose`, `--quiet`, `--gpt-model <model>`, `--claude-model <model>`, `--branch [name]` (diff only), `--steelman` (steelman cross-exam), `--iterate [N]` (convergence loop, requires file context)
 **Single-target:** `/peer-review gpt <prompt>`, `/peer-review claude <prompt>`
 **Other:** `/peer-review history` (show recent reviews), `/brainstorm` (legacy alias)
 
@@ -259,6 +259,8 @@ If the user invokes `/peer-review diff`, capture the appropriate diff based on f
 - **`/peer-review diff --branch <name>`**: Run `git diff <name>...HEAD` to compare against the specified branch.
 
 If the diff is empty, report "No changes found — stage some changes with `git add` first (or use `--branch` to compare branches)."
+
+**Diff privacy screening:** Before preparing the diff for review, run the same sensitivity scan from Step 0.2 on the diff content. If the diff contains changes to files matching sensitive path patterns (`.env`, `credentials`, `secret`, `.pem`, `.key`, `id_rsa`) or the diff content itself contains credential-like patterns (API keys, connection strings), warn the user: "Your diff contains changes to sensitive files ({list}). This content will be sent to external models. Proceed?" Block dispatch if the user declines.
 
 **Binary file handling and file stats:** Before preparing the diff, run `git diff --numstat` (with the same arguments). This provides per-file insertions/deletions and identifies binary files (lines starting with `-\t-\t`). Exclude binary files from the diff content and append a notice: `\n\n[Binary files excluded from review: {list}. Binary files cannot be meaningfully reviewed as text.]` If ALL changed files are binary, report "Only binary files changed — nothing to review as text."
 
@@ -490,9 +492,14 @@ Group items under the applicable category headers below. Omit empty categories. 
 
 1. [action item] _(GPT)_ **[HIGH CONFIDENCE]**
 
-**Architecture & Design** 2. [action item] _(Claude)_ **[MEDIUM CONFIDENCE]** 3. [action item] _(consensus)_ **[HIGH CONFIDENCE]** — both models flagged this
+**Architecture & Design**
 
-**Performance & Scaling** 4. [action item] _(GPT)_ **[LOW CONFIDENCE]**
+2. [action item] _(Claude)_ **[MEDIUM CONFIDENCE]**
+3. [action item] _(consensus)_ **[HIGH CONFIDENCE]** — both models flagged this
+
+**Performance & Scaling**
+
+4. [action item] _(GPT)_ **[LOW CONFIDENCE]**
 
 **Testing & Quality**
 
@@ -576,7 +583,9 @@ Skip the cross-examination section and decision packet. Just show the raw respon
 
 ### Step 6 — Accept/Discard Workflow
 
-After presenting results, offer the cherry-pick menu. Number every actionable item in the Decision Packet.
+If `--iterate` is active, skip Step 6 entirely and proceed to Step 7 (the iteration loop handles cherry-picking automatically).
+
+Otherwise, offer the cherry-pick menu. Number every actionable item in the Decision Packet.
 
 ```markdown
 ---
@@ -611,6 +620,8 @@ Key behaviors:
 
 When `--iterate` is active, the skill enters an autonomous modify-verify-keep/discard loop instead of the standard accept/discard workflow. This transforms peer-review from a single-pass oracle into a convergence algorithm.
 
+**Rollback preparation:** Before iteration 1, read the full content of every referenced file and store it as `ORIGINAL_{filename}` in working memory. After each iteration, store the diff of changes made. On `revert iteration N`, apply the reverse diff for iteration N. On `revert all`, write `ORIGINAL_{filename}` back verbatim.
+
 **Requirements:** `--iterate` requires file context — either a referenced file path or diff mode. Without a concrete artifact to modify, iteration has nothing to converge on. If invoked without file context, warn and fall back to standard Step 6.
 
 **Loop behavior:**
@@ -619,12 +630,12 @@ For each iteration (1 to N, default 3, max 5):
 
 1. **RUN REVIEW** — Execute Steps 2-5 as normal (dispatch, cross-exam, synthesis). Produce Decision Packet with numbered items.
 
-2. **AUTO-CHERRY-PICK (Claude Opus decides)** — Accept all HIGH CONFIDENCE items automatically. Accept MEDIUM CONFIDENCE consensus items (flagged by both models). Hold LOW CONFIDENCE and single-source MEDIUM items for user override. Present the decision:
+2. **AUTO-CHERRY-PICK (orchestrating Claude decides)** — Accept all HIGH CONFIDENCE items automatically. Accept all HIGH CONFIDENCE items, including consensus items (which are always HIGH CONFIDENCE per Step 5). Hold LOW CONFIDENCE and single-source MEDIUM items for user override. Present the decision:
 
 ```markdown
 **Iteration {N} — Auto-pick:** Accepting items {list} (HIGH CONFIDENCE).
 Holding items {list} for your review.
-**Override?** Type 'stop' to halt, 'override' to manually cherry-pick, or press Enter to continue.
+**Override?** Reply 'stop' to halt, 'override' to manually cherry-pick, or say 'continue' to proceed. If the user replies with 'continue', 'yes', 'proceed', 'y', or an empty/minimal response, treat as continue. Any other substantive reply should be treated as a pause — present the reply context and ask whether to continue or stop.
 ```
 
 3. **APPLY FIXES** — Apply accepted items to the file context using Claude's edit capabilities. Show a brief diff summary of changes made.
@@ -636,7 +647,7 @@ Holding items {list} for your review.
    - **[REGRESSION]** — item count increased (warn user, consider reverting)
 
 5. **DECIDE: CONTINUE OR STOP**
-   - STOP if: no new HIGH/CRITICAL items (convergence achieved)
+   - STOP if: no HIGH/CRITICAL items remain in the Decision Packet — neither new nor persistent (convergence achieved)
    - STOP if: item count increased vs prior iteration (regression — auto-pause)
    - STOP if: max iterations reached
    - CONTINUE if: new HIGH/CRITICAL items remain
@@ -669,6 +680,7 @@ Holding items {list} for your review.
 - User can type `stop` at any auto-pick prompt to halt the loop
 - User can type `override` to switch to manual cherry-pick for that iteration
 - Regressions (item count increase) trigger an automatic pause with explanation
+- **Diff mode iteration:** If file context came from `--iterate diff`, after applying fixes, re-run the same `git diff` command from Step 1 to capture the updated diff as context for the next iteration. Warn the user that staged changes will reflect applied fixes. **Important:** When iterating on staged changes (`git diff --cached`), use `git diff HEAD` instead — this captures both staged and unstaged changes, so fixes applied to the working tree are visible in subsequent iterations
 - All changes are applied via Claude's edit tools — fully visible in the conversation
 - The original file state is preserved; `revert all` restores it completely
 
