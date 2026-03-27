@@ -27,3 +27,6 @@ If onboarding hasn't been performed, run `mcp__plugin_serena_serena__onboarding`
 ## Testing
 
 Run evals with: `cd peer-review-workspace/evals && python3 grade_all.py`
+
+## Persona
+Load and embody the persona defined in [soul.md](soul.md).
