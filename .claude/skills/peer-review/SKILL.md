@@ -1,10 +1,10 @@
 ---
-description: "Multi-LLM peer review — send plans, ideas, or code to GPT and Claude (via GitHub Copilot CLI) for structured peer review with cross-examination, then cherry-pick feedback. Decision Packet v2 with tiered output (Ship Blocker / Before Next Sprint / Backlog), dependency arrows, effort estimates, conflict flags, and JSON export. Tie-breaker model resolves HIGH CONFIDENCE deadlocks. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Supports parallel multi-mode dispatch (--modes redteam,deploy,perf) with collision detection. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Also trigger when the user says /brainstorm (legacy alias). Supports --rounds N, --verbose, --quiet, --gpt-model, --claude-model, --steelman, --iterate, --json, and --modes flags."
+description: "Multi-LLM peer review — send plans, ideas, or code to GPT (via GitHub Copilot CLI) and Gemini (via Gemini CLI) for structured peer review with cross-examination, then cherry-pick feedback. Decision Packet v2 with tiered output (Ship Blocker / Before Next Sprint / Backlog), dependency arrows, effort estimates, conflict flags, and JSON export. Tie-breaker model resolves HIGH CONFIDENCE deadlocks. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Supports parallel multi-mode dispatch (--modes redteam,deploy,perf) with collision detection. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Supports --rounds N, --verbose, --quiet, --gpt-model, --gemini-model, --steelman, --iterate, --json, and --modes flags."
 ---
 
 # /peer-review — Multi-LLM Peer Review & Brainstorm
 
-A multi-round orchestration skill that dispatches prompts to GPT and Claude via the GitHub Copilot CLI, has them cross-examine each other's responses across configurable rounds, and synthesizes the results into actionable feedback. Each mode uses role-differentiated prompts that play to each model's strengths.
+A multi-round orchestration skill that dispatches prompts to GPT via the GitHub Copilot CLI and Gemini via the Gemini CLI, has them cross-examine each other's responses across configurable rounds, and synthesizes the results into actionable feedback. Each mode uses role-differentiated prompts that play to each model's strengths.
 
 ## Configuration
 
@@ -12,15 +12,16 @@ These values live at the top of the skill so they're easy to update when new mod
 
 ```
 GPT_MODEL: gpt-5.4                # pin to specific model; update when new models ship
-CLAUDE_MODEL: claude-sonnet-4.6    # pin to specific model; avoid using the same model as the orchestrating Claude instance
+GEMINI_MODEL: gemini-3.1-pro-preview  # pin to specific model; Gemini is a different provider (Google) so no self-review bias concern
 COPILOT_FLAGS: -s --no-ask-user
+GEMINI_FLAGS: -p --model <GEMINI_MODEL> --approval-mode plan --output-format text
 ROUNDS: 2              # cross-examination rounds (1-4); 1 = no cross-exam, 2 = default, 3-4 = deep deliberation
 TIMEOUT_HARD: 120      # seconds — hard cutoff per CLI call
 MAX_CROSSEXAM_CHARS: 12000  # truncate peer output before feeding into cross-exam to prevent token explosion
 MAX_TOTAL_PROMPT_CHARS: 40000  # hard ceiling per dispatch — budget original input + file context + own prior + peer response
 ```
 
-The `--gpt-model` and `--claude-model` per-invocation flags override the pinned values for that invocation. To see available models, check the Copilot CLI documentation or test a model name with `copilot -s --no-ask-user --model <name> -p "hello"` — a quick probe that confirms the model is accessible. Set `ROUNDS` higher (3-4) for complex architectural decisions where you want thorough back-and-forth deliberation. Use 1 for quick feedback without cross-examination. `MAX_TOTAL_PROMPT_CHARS` prevents prompt blowouts at 3+ rounds — before every dispatch, sum the character lengths of all sections being sent and truncate the largest non-essential section if the total exceeds the budget.
+The `--gpt-model` and `--gemini-model` per-invocation flags override the pinned values for that invocation. To see available models for GPT, check the Copilot CLI documentation or test a model name with `copilot -s --no-ask-user --model <name> -p "hello"`. For Gemini, test with `gemini -p "hello" --model <name> --approval-mode plan --output-format text`. Set `ROUNDS` higher (3-4) for complex architectural decisions where you want thorough back-and-forth deliberation. Use 1 for quick feedback without cross-examination. `MAX_TOTAL_PROMPT_CHARS` prevents prompt blowouts at 3+ rounds — before every dispatch, sum the character lengths of all sections being sent and truncate the largest non-essential section if the total exceeds the budget.
 
 ## Modes
 
@@ -34,7 +35,7 @@ The `--gpt-model` and `--claude-model` per-invocation flags override the pinned 
 | `/peer-review advocate <plan>`         | Good cop / bad cop: one defends, one attacks                  | ROUNDS (2)     |
 | `/peer-review quick <prompt>`          | Fast second opinion, no synthesis                             | 1 (always)     |
 | `/peer-review gpt <prompt>`            | Single-target: GPT only                                       | 1 (always)     |
-| `/peer-review claude <prompt>`         | Single-target: Claude only                                    | 1 (always)     |
+| `/peer-review gemini <prompt>`         | Single-target: Gemini only                                    | 1 (always)     |
 | `/peer-review help`                    | Show all modes, options, and examples                         | N/A            |
 | `/peer-review history`                 | Show recent peer reviews from this session                    | N/A            |
 | `/peer-review diff`                    | Review staged git changes                                     | ROUNDS (2)     |
@@ -42,7 +43,6 @@ The `--gpt-model` and `--claude-model` per-invocation flags override the pinned 
 | `/peer-review deploy <rollout-plan>`   | Review deployment/rollout plans                               | ROUNDS (2)     |
 | `/peer-review api <api-design>`        | Review API designs: consistency, evolution, client experience | ROUNDS (2)     |
 | `/peer-review perf <code-or-plan>`     | Performance review: bottlenecks, scaling, capacity            | ROUNDS (2)     |
-| `/brainstorm ...`                      | Legacy alias — maps to same modes above                       | varies         |
 
 **Per-invocation rounds override:** Any multi-round mode accepts `--rounds N` to override the default ROUNDS config for that invocation. Example: `/peer-review debate --rounds 3 Should we rewrite the auth layer?`. Quick and single-target modes always use 1 round regardless of `--rounds`.
 
@@ -62,15 +62,23 @@ command -v copilot >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: copilot CLI not inst
 gh auth status 2>&1 | grep -q "Logged in" || copilot --version >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: GitHub auth not configured (run: gh auth login or copilot login)"
 ```
 
-If the Copilot CLI is missing, tell the user and provide the install command. If auth fails both checks (neither `gh auth status` nor `copilot --version` succeeds), tell the user to authenticate. Note: auth may come from `gh` CLI, `copilot login`, or environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`) — any one is sufficient.
+```bash
+command -v gemini >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: gemini CLI not installed (install via: npm install -g @google/gemini-cli or brew install gemini)"
+```
+
+```bash
+gemini -p "test" --model gemini-3.1-pro-preview --approval-mode plan --output-format text >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: Gemini CLI auth not configured (run: gemini auth or set GEMINI_API_KEY)"
+```
+
+If the Copilot CLI is missing, tell the user and provide the install command. If auth fails both checks (neither `gh auth status` nor `copilot --version` succeeds), tell the user to authenticate. Copilot auth may come from `gh` CLI, `copilot login`, or environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`) — any one is sufficient. Gemini auth may come from Google Cloud credentials, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `gemini auth`.
 
 ### Step 0.1 — Model Validation
 
-Report the resolved models briefly: "Using GPT: {GPT_MODEL}, Claude: {CLAUDE_MODEL}"
+Report the resolved models briefly: "Using GPT: {GPT_MODEL}, Gemini: {GEMINI_MODEL}"
 
-If a `--gpt-model` or `--claude-model` override was given, use that instead of the pinned config value for this invocation. Validate the model name matches `[a-zA-Z0-9._-]+` — reject and warn on invalid names.
+If a `--gpt-model` or `--gemini-model` override was given, use that instead of the pinned config value for this invocation. Validate the model name matches `[a-zA-Z0-9._-]+` — reject and warn on invalid names.
 
-**Important:** The CLAUDE_MODEL must not be the same model ID as the orchestrating Claude instance, to avoid self-review bias. Check the orchestrating model and ensure CLAUDE_MODEL differs (e.g., if orchestrating is `claude-opus-4.6`, use `claude-sonnet-4.6` as reviewer, and vice versa).
+**Note:** Gemini is a different provider (Google) than the orchestrating Claude instance, so self-review bias is not a concern.
 
 ### Step 0.2 — Privacy Gate
 
@@ -88,7 +96,7 @@ Check for:
 
 If any patterns are found, warn the user before proceeding:
 
-"Your prompt may contain sensitive data (detected: {list of pattern types}). Review content will be sent to GPT and Claude via GitHub Copilot (routed to OpenAI and Anthropic). Proceed? (yes/no)"
+"Your prompt may contain sensitive data (detected: {list of pattern types}). Review content will be sent to GPT via GitHub Copilot (routed to OpenAI) and Gemini via Google. Proceed? (yes/no)"
 
 Do NOT dispatch if the user says no. The `--quiet` flag does NOT suppress this warning — it is always shown when sensitive patterns are detected.
 
@@ -119,9 +127,9 @@ Extract the subcommand and user's prompt. Parse and remove any flags before disp
 
 - **`--rounds N`**: Override the default ROUNDS config for this invocation. N must be an integer 1-4; ignore invalid values and fall back to the default. Quick and single-target modes always use 1 round regardless of `--rounds`.
 - **`--verbose`**: Show exact prompts sent to each model (in a collapsed `<details>` block), raw round outputs for every round (not just highlights), and character counts per CLI call.
-- **`--quiet`**: Skip "Claude's Take", individual model response sections, and cross-examination highlights. Show ONLY the Decision Packet and the cherry-pick menu. `--verbose` and `--quiet` are mutually exclusive; if both appear, warn and default to normal.
+- **`--quiet`**: Skip "Claude's Take" (orchestrator analysis), individual model response sections, and cross-examination highlights. Show ONLY the Decision Packet and the cherry-pick menu. `--verbose` and `--quiet` are mutually exclusive; if both appear, warn and default to normal.
 - **`--gpt-model <model>`**: Override the resolved GPT model for this invocation (skips auto-discovery for GPT). The model name must match `[a-zA-Z0-9._-]+` — reject and warn on invalid names. Pass via `--model <model>` in the GPT bash template.
-- **`--claude-model <model>`**: Override the resolved Claude model for this invocation. The model name must match `[a-zA-Z0-9._-]+` — reject and warn on invalid names. Pass via `--model <model>` in the Claude bash template.
+- **`--gemini-model <model>`**: Override the resolved Gemini model for this invocation. The model name must match `[a-zA-Z0-9._-]+` — reject and warn on invalid names. Pass via `--model <model>` in the Gemini bash template.
 - **`--branch [name]`**: For diff mode only. Compare against a branch instead of staged/unstaged changes. If `--branch` is given without a name, default to `main`. Example: `/peer-review diff --branch feature-x` runs `git diff feature-x...HEAD`. Ignored for non-diff modes.
 - **`--steelman`**: Use steelman cross-examination instead of adversarial. In steelman mode, each model must first make the strongest possible version of the peer's argument before critiquing it. Produces deeper analysis with fewer strawman dismissals. Costs no extra CLI calls. Ignored for quick/single-target modes.
 - **`--iterate [N]`**: Autoresearch-style convergence loop. After each review, the orchestrating Claude auto-cherry-picks the best items, applies HIGH CONFIDENCE fixes to file context, re-reviews, and repeats until convergence or N iterations (default 3, max 5). Requires file context (a referenced file or diff). The user is shown each iteration's decisions and can override at any point. See Step 7.
@@ -135,66 +143,66 @@ Remove all parsed flags from the prompt text before building role-differentiated
 
 Then build **role-differentiated** prompts for each model based on the mode.
 
-The key principle: each model gets a different reviewer persona that plays to its strengths. GPT excels at implementation-level critique (concrete steps, edge cases, code-level pitfalls). Claude excels at strategic/architectural thinking (system-level tradeoffs, alternative approaches, long-term implications).
+The key principle: each model gets a different reviewer persona that plays to its strengths. GPT excels at implementation-level critique (concrete steps, edge cases, code-level pitfalls). Gemini excels at strategic/architectural thinking (system-level tradeoffs, alternative approaches, long-term implications).
 
 #### Review Mode (default)
 
 - **GPT prompt:** "You are a pragmatic implementation reviewer. Analyze this plan for concrete implementation risks, missing edge cases, underspecified details, and ordering problems. For each issue, state: (1) the specific problem, (2) its severity [critical/high/medium/low], (3) a concrete fix. Be blunt and specific, not generic."
-- **Claude prompt:** "You are a strategic architecture reviewer. Analyze this plan for systemic risks, scalability concerns, alternative approaches that were missed, and long-term maintenance implications. For each concern, state: (1) the issue, (2) why it matters at scale, (3) an alternative approach. Think beyond the immediate implementation."
+- **Gemini prompt:** "You are a strategic architecture reviewer. Analyze this plan for systemic risks, scalability concerns, alternative approaches that were missed, and long-term maintenance implications. For each concern, state: (1) the issue, (2) why it matters at scale, (3) an alternative approach. Think beyond the immediate implementation."
 - **Append to both:** The user's plan/content.
 
 #### Idea Mode
 
 - **GPT prompt:** "You are a pragmatic builder. For this topic, propose 3-5 concrete, buildable approaches. Each must include: what to build, key technical decisions, and the fastest path to a working prototype. Avoid abstract advice — every suggestion should be something you could start coding today."
-- **Claude prompt:** "You are a creative strategist. For this topic, propose 3-5 non-obvious approaches that a typical engineer wouldn't think of. Include unconventional architectures, cross-domain inspiration, and approaches that challenge common assumptions. Each must be practical enough to evaluate in a week."
+- **Gemini prompt:** "You are a creative strategist. For this topic, propose 3-5 non-obvious approaches that a typical engineer wouldn't think of. Include unconventional architectures, cross-domain inspiration, and approaches that challenge common assumptions. Each must be practical enough to evaluate in a week."
 
 #### Redteam Mode
 
 - **GPT prompt:** "You are a red team analyst. Your job is to break this plan. Find: (1) security vulnerabilities and attack vectors, (2) failure modes under load or edge conditions, (3) assumptions that could be wrong, (4) ways an adversary could exploit or game this system. Be adversarial and specific."
-- **Claude prompt:** "You are a failure analyst. Assume this plan ships as-is. Find: (1) the top 5 ways it could fail in production, (2) cascading failure scenarios, (3) silent failures that wouldn't trigger alerts, (4) operational blind spots. For each, describe the failure chain and preventive measure."
+- **Gemini prompt:** "You are a failure analyst. Assume this plan ships as-is. Find: (1) the top 5 ways it could fail in production, (2) cascading failure scenarios, (3) silent failures that wouldn't trigger alerts, (4) operational blind spots. For each, describe the failure chain and preventive measure."
 
 #### Debate Mode
 
 - **GPT prompt:** "You are arguing IN FAVOR of this approach. Build the strongest possible case: why this is the right path, what advantages it has over alternatives, and why the risks are manageable. Be persuasive and specific with evidence."
-- **Claude prompt:** "You are arguing AGAINST this approach. Build the strongest possible counter-case: why this is the wrong path, what alternatives are better, and why the risks are unacceptable. Be persuasive and specific with evidence."
+- **Gemini prompt:** "You are arguing AGAINST this approach. Build the strongest possible counter-case: why this is the wrong path, what alternatives are better, and why the risks are unacceptable. Be persuasive and specific with evidence."
 
 #### Premortem Mode
 
 - **GPT prompt:** "It is 6 months from now. This plan was executed and it failed badly. Write the post-mortem: (1) what went wrong, (2) the root cause chain, (3) warning signs that were ignored, (4) what should have been done differently. Focus on technical and execution failures."
-- **Claude prompt:** "It is 6 months from now. This plan was executed and it failed badly. Write the post-mortem: (1) what went wrong, (2) the organizational and strategic failures, (3) what external changes made the plan obsolete, (4) what the team should do now to recover. Focus on strategic and environmental failures."
+- **Gemini prompt:** "It is 6 months from now. This plan was executed and it failed badly. Write the post-mortem: (1) what went wrong, (2) the organizational and strategic failures, (3) what external changes made the plan obsolete, (4) what the team should do now to recover. Focus on strategic and environmental failures."
 
 After presenting both post-mortems, Claude must convert each failure scenario into a specific preventive action item for the Decision Packet. Frame each as: "To prevent [failure], do [action] before [milestone]."
 
 #### Advocate Mode
 
 - **GPT prompt (Advocate):** "You are the plan's strongest defender. Your job is to find everything that's working well, validate the approach, and build the case for why this plan will succeed. Identify: (1) the strongest aspects of this plan and why they work, (2) why the chosen approach is better than alternatives, (3) risks that are actually manageable with straightforward mitigations, (4) hidden strengths the author may not have realized. Be specific and evidence-based — genuine advocacy, not empty praise."
-- **Claude prompt (Critic):** "You are a constructive but relentless critic. Your job is to find everything wrong with this plan and argue for what should be removed or changed. Identify: (1) the weakest aspects of this plan, (2) assumptions that are likely wrong, (3) things that should be cut or simplified, (4) better alternatives for each weak point. Be specific and evidence-based — constructive criticism, not negativity for its own sake."
+- **Gemini prompt (Critic):** "You are a constructive but relentless critic. Your job is to find everything wrong with this plan and argue for what should be removed or changed. Identify: (1) the weakest aspects of this plan, (2) assumptions that are likely wrong, (3) things that should be cut or simplified, (4) better alternatives for each weak point. Be specific and evidence-based — constructive criticism, not negativity for its own sake."
 
 #### Refactor Mode
 
 - **GPT prompt:** "You are a refactoring specialist focused on code-level quality. Analyze this refactoring plan or code for: (1) SOLID principle violations — identify which principle is violated, where, and the minimal fix, (2) DRY violations — find duplicated logic that should be extracted, with specific extraction targets, (3) Design pattern misapplications — patterns used incorrectly or simpler alternatives that achieve the same goal, (4) Coupling hotspots — concrete dependency chains that make this code hard to change independently. For each finding, state the specific location, the problem, and a concrete refactoring move (extract method, introduce interface, etc.)."
-- **Claude prompt:** "You are an architecture reviewer focused on refactoring strategy. Analyze this refactoring plan or code for: (1) Architectural pattern alignment — does this refactoring move toward or away from a coherent architecture, (2) Dependency graph health — are dependencies flowing in the right direction, are there circular dependencies forming, (3) Migration strategy gaps — what is the incremental path from current state to target state, what are the intermediate stable states, (4) Long-term maintainability — will this refactoring make future changes easier or harder, and for which kinds of changes. For each concern, explain the systemic impact and propose an alternative refactoring approach."
+- **Gemini prompt:** "You are an architecture reviewer focused on refactoring strategy. Analyze this refactoring plan or code for: (1) Architectural pattern alignment — does this refactoring move toward or away from a coherent architecture, (2) Dependency graph health — are dependencies flowing in the right direction, are there circular dependencies forming, (3) Migration strategy gaps — what is the incremental path from current state to target state, what are the intermediate stable states, (4) Long-term maintainability — will this refactoring make future changes easier or harder, and for which kinds of changes. For each concern, explain the systemic impact and propose an alternative refactoring approach."
 
 #### Deploy Mode
 
 - **GPT prompt:** "You are a deployment engineer reviewing a rollout plan. Analyze for: (1) Rollback procedures — is every step reversible, what is the rollback trigger, and what is the expected rollback time, (2) Health check coverage — are there readiness/liveness probes, what signals confirm the deploy is healthy, what is the verification window, (3) Feature flag strategy — what is behind flags, what is the flag removal plan, what happens if a flag is stuck, (4) Database migration safety — are migrations backward-compatible, can the old code run against the new schema, what is the data backfill plan. For each gap, state the specific failure scenario and the operational fix."
-- **Claude prompt:** "You are a site reliability engineer reviewing a rollout plan. Analyze for: (1) Blast radius — what percentage of users/traffic is affected at each stage, what is the exposure timeline, (2) Canary strategy — is there progressive rollout, what metrics gate promotion, what is the bake time between stages, (3) Monitoring gaps — what alerts should fire during rollout, what dashboards should be watched, what is the on-call escalation path, (4) Incident response — if this deploy causes a P1, what is the detection-to-mitigation timeline, who is the DRI, what is the communication plan. For each concern, describe the worst-case scenario and the preventive measure."
+- **Gemini prompt:** "You are a site reliability engineer reviewing a rollout plan. Analyze for: (1) Blast radius — what percentage of users/traffic is affected at each stage, what is the exposure timeline, (2) Canary strategy — is there progressive rollout, what metrics gate promotion, what is the bake time between stages, (3) Monitoring gaps — what alerts should fire during rollout, what dashboards should be watched, what is the on-call escalation path, (4) Incident response — if this deploy causes a P1, what is the detection-to-mitigation timeline, who is the DRI, what is the communication plan. For each concern, describe the worst-case scenario and the preventive measure."
 
 #### API Mode
 
 - **GPT prompt:** "You are an API design reviewer focused on implementation correctness. Analyze this API design for: (1) Consistency violations — naming conventions, HTTP method semantics, error response format inconsistencies across endpoints, (2) Error handling gaps — missing error codes, ambiguous failure states, unhelpful error messages for common client mistakes, (3) Pagination and filtering — is the pagination strategy cursor-based or offset-based (and why), are filters composable, what are the default/max page sizes, (4) Versioning strategy — how are breaking changes introduced, is the versioning in URL/header/query, what is the deprecation timeline. For each issue, provide the specific endpoint or pattern affected and the concrete fix."
-- **Claude prompt:** "You are an API strategist focused on long-term evolution and client experience. Analyze this API design for: (1) Backwards compatibility risks — which design decisions will be hard to change later, what is the API's evolutionary path, (2) Client experience — is the API intuitive for first-time users, are common workflows achievable in minimal calls, does the error surface guide developers toward correct usage, (3) Rate limiting and abuse prevention — are rate limits documented, are they per-key or per-endpoint, what happens when limits are hit (429 with Retry-After?), (4) API lifecycle — what is the versioning/deprecation/sunset strategy, how do clients discover capabilities, is there a migration path for breaking changes. For each concern, explain why it matters for API longevity and propose an alternative design."
+- **Gemini prompt:** "You are an API strategist focused on long-term evolution and client experience. Analyze this API design for: (1) Backwards compatibility risks — which design decisions will be hard to change later, what is the API's evolutionary path, (2) Client experience — is the API intuitive for first-time users, are common workflows achievable in minimal calls, does the error surface guide developers toward correct usage, (3) Rate limiting and abuse prevention — are rate limits documented, are they per-key or per-endpoint, what happens when limits are hit (429 with Retry-After?), (4) API lifecycle — what is the versioning/deprecation/sunset strategy, how do clients discover capabilities, is there a migration path for breaking changes. For each concern, explain why it matters for API longevity and propose an alternative design."
 
 #### Perf Mode
 
 - **GPT prompt:** "You are a performance engineer focused on code-level optimization. Analyze this code or plan for: (1) Hot path analysis — identify the critical execution paths and where latency concentrates, (2) Memory allocation patterns — unnecessary allocations, object churn, opportunities for pooling or pre-allocation, (3) Caching opportunities — data that is computed repeatedly but changes rarely, with specific cache invalidation strategies, (4) Query and I/O patterns — N+1 queries, missing indexes, unbounded result sets, synchronous I/O on hot paths. For each finding, estimate the performance impact (order of magnitude) and provide the specific optimization."
-- **Claude prompt:** "You are a capacity planning engineer focused on system-level performance. Analyze this code or plan for: (1) Scaling bottlenecks — which components will hit limits first as load grows 10x, what is the scaling dimension (CPU, memory, I/O, network), (2) Capacity planning gaps — what load testing has been done, what are the SLOs, what headroom exists before degradation, (3) Load distribution — are requests balanced, are there hot partitions, what is the fan-out pattern, (4) Graceful degradation strategy — what happens under 2x expected load, what can be shed, what are the circuit breaker policies. For each concern, describe the failure mode at scale and the architectural mitigation."
+- **Gemini prompt:** "You are a capacity planning engineer focused on system-level performance. Analyze this code or plan for: (1) Scaling bottlenecks — which components will hit limits first as load grows 10x, what is the scaling dimension (CPU, memory, I/O, network), (2) Capacity planning gaps — what load testing has been done, what are the SLOs, what headroom exists before degradation, (3) Load distribution — are requests balanced, are there hot partitions, what is the fan-out pattern, (4) Graceful degradation strategy — what happens under 2x expected load, what can be shed, what are the circuit breaker policies. For each concern, describe the failure mode at scale and the architectural mitigation."
 
 #### Quick Mode
 
 - **Both models:** Pass the user's prompt as-is with no wrapper. No cross-examination rounds.
 
-#### Single-Target Modes (gpt/claude)
+#### Single-Target Modes (gpt/gemini)
 
 - Pass the user's prompt as-is to the specified model only. No cross-examination rounds.
 
@@ -220,10 +228,10 @@ If the user invokes `/peer-review help`, do NOT dispatch to any CLI. Instead, pr
 | `diff`             | Review staged git changes         | `/peer-review diff`                                            |
 | `quick`            | Fast second opinion (1 round)     | `/peer-review quick Is this regex safe?`                       |
 
-**Options:** `--rounds N` (1-4), `--verbose`, `--quiet`, `--gpt-model <model>`, `--claude-model <model>`, `--branch [name]` (diff only), `--steelman` (steelman cross-exam), `--iterate [N]` (convergence loop, requires file context), `--json` (emit Decision Packet as JSON), `--modes <m1,m2,...>` (parallel multi-mode, cap 4)
+**Options:** `--rounds N` (1-4), `--verbose`, `--quiet`, `--gpt-model <model>`, `--gemini-model <model>`, `--branch [name]` (diff only), `--steelman` (steelman cross-exam), `--iterate [N]` (convergence loop, requires file context), `--json` (emit Decision Packet as JSON), `--modes <m1,m2,...>` (parallel multi-mode, cap 4)
 **Presets:** `--modes preset:release` (redteam,deploy,perf), `preset:security` (redteam,api), `preset:quality` (review,refactor,perf)
-**Single-target:** `/peer-review gpt <prompt>`, `/peer-review claude <prompt>`
-**Other:** `/peer-review history` (show recent reviews), `/brainstorm` (legacy alias)
+**Single-target:** `/peer-review gpt <prompt>`, `/peer-review gemini <prompt>`
+**Other:** `/peer-review history` (show recent reviews)
 
 ### Decision Packet v2
 
@@ -300,10 +308,10 @@ Send to both models **in parallel** (two Bash calls in the same message). Write 
 
 ```bash
 GPT_HEX=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
-CLAUDE_HEX=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
+GEMINI_HEX=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
 ```
 
-Use `PEER_REVIEW_EOF_${GPT_HEX}` for the GPT heredoc and `PEER_REVIEW_EOF_${CLAUDE_HEX}` for the Claude heredoc. Never hardcode, reuse, or skip this step. Each dispatch call in every round gets its own freshly generated suffix.
+Use `PEER_REVIEW_EOF_${GPT_HEX}` for the GPT heredoc and `PEER_REVIEW_EOF_${GEMINI_HEX}` for the Gemini heredoc. Never hardcode, reuse, or skip this step. Each dispatch call in every round gets its own freshly generated suffix.
 
 **Mandatory — enforce MAX_TOTAL_PROMPT_CHARS before dispatch:** Sum the character lengths of all content being sent (role prompt + user content + file context + own prior response + peer response). If the total exceeds `MAX_TOTAL_PROMPT_CHARS` (40000), truncate the largest non-essential section (file context first, then peer response) at a sentence boundary with a notice. In Round 1, never truncate the user's original prompt. In cross-exam rounds (2+), the ORIGINAL TASK section may be truncated to 4000 chars to make room for prior responses and peer output. Role prompts are never truncated.
 
@@ -325,17 +333,17 @@ trap - EXIT
 ```
 
 ```bash
-PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-claude.XXXXXX)
-STDERR_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-claude-err.XXXXXX)
+PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gemini.XXXXXX)
+STDERR_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gemini-err.XXXXXX)
 chmod 600 "$PROMPT_FILE" "$STDERR_FILE"
 trap 'rm -f "$PROMPT_FILE" "$STDERR_FILE"' EXIT
 python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
-<full Claude prompt here>
+<full Gemini prompt here>
 PEER_REVIEW_EOF_<8_RANDOM_HEX>
-copilot -s --no-ask-user --model <RESOLVED_CLAUDE_MODEL> < "$PROMPT_FILE" 2>"$STDERR_FILE"; EXIT_CODE=$?
+gemini -p "$(cat "$PROMPT_FILE")" --model <RESOLVED_GEMINI_MODEL> --approval-mode plan --output-format text 2>"$STDERR_FILE"; EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
-  echo "CLAUDE_FAILED: exit code $EXIT_CODE"
-  echo "CLAUDE_STDERR: $(cat "$STDERR_FILE")"
+  echo "GEMINI_FAILED: exit code $EXIT_CODE"
+  echo "GEMINI_STDERR: $(cat "$STDERR_FILE")"
 fi
 rm -f "$PROMPT_FILE" "$STDERR_FILE"
 trap - EXIT
@@ -348,7 +356,8 @@ trap - EXIT
 - **CRITICAL — heredoc delimiter randomization:** The template uses `PEER_REVIEW_EOF_<8_RANDOM_HEX>` as a placeholder. You MUST replace `<8_RANDOM_HEX>` with 8 fresh random hex characters (e.g., `a3f7b21e`) on every invocation. Both the opening and closing delimiter must match. Never reuse a previous suffix. This prevents malicious user input from injecting the delimiter string to escape the heredoc and execute arbitrary shell commands
 - `chmod 600` ensures the temp file is only readable by the current user
 - The `trap` ensures temp files are cleaned up even if the CLI call fails or times out
-- Copilot CLI runs with `--no-ask-user` to prevent interactive prompts during automated dispatch. The `-s` flag ensures only the response is output (no stats/metadata)
+- Copilot CLI runs with `--no-ask-user` to prevent interactive prompts during automated dispatch. The `-s` flag ensures only the response is output (no stats/metadata). Gemini CLI runs with `--approval-mode plan` to prevent agentic tool use (read-only mode) and `--output-format text` for clean output
+- **IMPORTANT — Gemini uses `-p` flag:** The Gemini prompt is passed via `-p "$(cat "$PROMPT_FILE")"` instead of stdin pipe, because `-p` appends to stdin and piping would cause double-send
 - **Stderr is captured to a temp file** (not discarded) so failure diagnostics are available. On success, the stderr file is cleaned up silently. On failure, stderr content is reported alongside the exit code
 
 **Do NOT use the `timeout` command** — it doesn't exist on macOS. The CLIs have internal timeouts. If a response takes longer than expected, the Bash tool's own timeout will catch it. Set the Bash timeout to 180000ms (3 minutes) to give the CLIs room. If the Bash tool times out, report: "{Model} timed out after 3 minutes. This usually means the model is overloaded or the prompt is too large. You can retry with `/peer-review quick` for a shorter exchange, or try again later."
@@ -368,6 +377,7 @@ Common failures:
 - Non-zero exit — auth error, rate limit, or model unavailable
 - Empty or partial output — if the response is fewer than 50 characters (excluding whitespace), treat it as a failure (stub, error message, or truncated response). Report: "{Model} returned a partial/empty response ({N} chars). Treating as unavailable for this review."
 - **Rate limiting** — look for `rate limit`, `429`, `too many requests`, or `quota` in stderr. If detected, report: "{Model} is rate-limited. Wait a few minutes before retrying, or continue with the other model's results."
+- **Gemini-specific failures** — Gemini CLI uses distinct exit codes. Check stderr for structured error messages. Common issues: expired Google credentials (run `gemini auth`), quota exceeded, model not available in region
 - **Bash tool timeout** — the 180s Bash timeout was hit. See timeout guidance in Step 2
 
 ### Step 4 — Rounds 2-N: Cross-Examination (multi-round modes only)
@@ -406,8 +416,8 @@ When steelman is active, add a **Steelmanned Positions** section to the output (
 ```markdown
 ### Steelmanned Positions
 
-**GPT's strongest case for Claude's view:** {what GPT found most compelling about Claude's analysis}
-**Claude's strongest case for GPT's view:** {what Claude found most compelling about GPT's analysis}
+**GPT's strongest case for Gemini's view:** {what GPT found most compelling about Gemini's analysis}
+**Gemini's strongest case for GPT's view:** {what Gemini found most compelling about GPT's analysis}
 **Survived steelman test:** {insights that held up even when given the most charitable reading}
 ```
 
@@ -497,7 +507,7 @@ Render your verdict:
 ```markdown
 ### Tie-Breaker Verdicts
 
-| Deadlock | Topic   | Position A (GPT) | Position B (Claude) | Verdict           | Reasoning          |
+| Deadlock | Topic   | Position A (GPT) | Position B (Gemini) | Verdict           | Reasoning          |
 | -------- | ------- | ---------------- | ------------------- | ----------------- | ------------------ |
 | D1       | {topic} | {summary}        | {summary}           | A / B / SYNTHESIS | {1-line reasoning} |
 ```
@@ -529,9 +539,9 @@ Format the results using the appropriate template for the mode.
 
 {gpt round 1 output}
 
-### Claude ({role label from mode})
+### Gemini ({role label from mode})
 
-{claude round 1 output}
+{gemini round 1 output}
 
 ### Cross-Examination Highlights
 
@@ -551,16 +561,16 @@ Format the results using the appropriate template for the mode.
 
 Before building the Decision Packet, scan both models' Round 1 outputs for substantively overlapping concerns — issues that both models raised independently (not just during cross-examination). Present them in a table:
 
-| #   | Issue            | GPT Framing            | Claude Framing            |
+| #   | Issue            | GPT Framing            | Gemini Framing            |
 | --- | ---------------- | ---------------------- | ------------------------- |
-| C1  | {shared concern} | {how GPT described it} | {how Claude described it} |
-| C2  | {shared concern} | {how GPT described it} | {how Claude described it} |
+| C1  | {shared concern} | {how GPT described it} | {how Gemini described it} |
+| C2  | {shared concern} | {how GPT described it} | {how Gemini described it} |
 
 Consensus items get automatic **[HIGH CONFIDENCE]** in the Decision Packet and should be prioritized in the Priority Matrix. If no substantive overlaps exist, omit this section.
 
 ### Decision Packet v2
 
-**Summary:** {N} items total — {n_critical} critical, {n_high} high, {n_medium} medium, {n_low} low | {n_consensus} consensus items | Sources: {n_gpt} GPT-only, {n_claude} Claude-only, {n_both} both
+**Summary:** {N} items total — {n_critical} critical, {n_high} high, {n_medium} medium, {n_low} low | {n_consensus} consensus items | Sources: {n_gpt} GPT-only, {n_gemini} Gemini-only, {n_both} both
 
 **Recommended path:** [single clear recommendation based on all perspectives]
 **Top 3 risks to mitigate:** [numbered, with specific mitigations]
@@ -581,7 +591,7 @@ Items to address soon but not blocking the current ship. High/medium severity, m
 
 | #   | Item          | Severity | Effort | Source | Confidence | Depends On | Conflicts With |
 | --- | ------------- | -------- | ------ | ------ | ---------- | ---------- | -------------- |
-| 3   | [action item] | high     | ~L     | Claude | MEDIUM     | —          | #5             |
+| 3   | [action item] | high     | ~L     | Gemini | MEDIUM     | —          | #5             |
 | 4   | [action item] | medium   | ~S     | GPT    | MEDIUM     | —          | —              |
 
 #### Tier 3 — Backlog 📋
@@ -590,7 +600,7 @@ Nice-to-have items, low severity or low confidence. Defer unless time allows.
 
 | #   | Item          | Severity | Effort | Source | Confidence | Depends On | Conflicts With |
 | --- | ------------- | -------- | ------ | ------ | ---------- | ---------- | -------------- |
-| 5   | [action item] | low      | ~XS    | Claude | LOW        | —          | #3             |
+| 5   | [action item] | low      | ~XS    | Gemini | LOW        | —          | #3             |
 
 **Tier assignment rules:**
 
@@ -641,13 +651,13 @@ After presenting the normal Decision Packet, emit a fenced JSON block containing
   "mode": "{mode}",
   "title": "{short title}",
   "timestamp": "{ISO 8601}",
-  "models": { "gpt": "{GPT_MODEL}", "claude": "{CLAUDE_MODEL}" },
+  "models": { "gpt": "{GPT_MODEL}", "gemini": "{GEMINI_MODEL}" },
   "rounds": {N},
   "summary": {
     "total": {N},
     "critical": {n}, "high": {n}, "medium": {n}, "low": {n},
     "consensus": {n},
-    "sources": { "gpt": {n}, "claude": {n}, "both": {n} }
+    "sources": { "gpt": {n}, "gemini": {n}, "both": {n} }
   },
   "items": [
     {
@@ -656,7 +666,7 @@ After presenting the normal Decision Packet, emit a fenced JSON block containing
       "item": "description text",
       "severity": "critical|high|medium|low",
       "effort": "XS|S|M|L|XL",
-      "source": "gpt|claude|consensus",
+      "source": "gpt|gemini|consensus",
       "confidence": "HIGH|MEDIUM|LOW",
       "depends_on": [],
       "conflicts_with": [],
@@ -856,7 +866,7 @@ When `--modes` is active, the skill runs multiple review modes simultaneously on
 - Parse mode list from `--modes` flag. If a preset is used (`preset:release`, `preset:security`, `preset:quality`), expand it to its mode list
 - Validate each mode exists in the modes table. Reject unknown modes with a warning
 - Cap at 4 modes — if more than 4 are specified, take the first 4 and warn
-- `--modes` is incompatible with: quick, single-target (gpt/claude), help, history, and `--iterate`. Warn and fall back to single-mode if combined
+- `--modes` is incompatible with: quick, single-target (gpt/gemini), help, history, and `--iterate`. Warn and fall back to single-mode if combined
 
 **Preset expansions:**
 
@@ -876,7 +886,7 @@ When `--modes` is active, the skill runs multiple review modes simultaneously on
 ## Multi-Mode Review — "{short title}"
 
 **Modes:** {mode1}, {mode2}, {mode3}
-**Models:** GPT: {GPT_MODEL}, Claude: {CLAUDE_MODEL}
+**Models:** GPT: {GPT_MODEL}, Gemini: {GEMINI_MODEL}
 
 ---
 
@@ -957,7 +967,7 @@ REVIEW_LOG[]:
 
 1. **Recurring modes**: If the same mode (e.g., "redteam") consistently produces Tier 1 items across 3+ reviews, surface it: "Pattern detected: {mode} reviews have produced Ship Blockers in {N} of your {total} reviews this session. Consider a dedicated {mode} pass before shipping."
 
-2. **Model bias**: If one model's items are consistently accepted over the other's (>70% of accepted items from a single source across 3+ reviews), note it: "Pattern: You've accepted {N}% of GPT's suggestions vs {M}% of Claude's. This might indicate {model}'s perspective is more aligned with your priorities."
+2. **Model bias**: If one model's items are consistently accepted over the other's (>70% of accepted items from a single source across 3+ reviews), note it: "Pattern: You've accepted {N}% of GPT's suggestions vs {M}% of Gemini's. This might indicate {model}'s perspective is more aligned with your priorities."
 
 3. **Effort distribution**: If most accepted items are ~XS/~S and ~L/~XL items are consistently discarded, note it: "Pattern: You're consistently picking quick fixes over larger structural changes. The deferred items may accumulate."
 
@@ -977,11 +987,10 @@ REVIEW_LOG[]:
 ## Notes
 
 - Temp files use `$TMPDIR/peer-review-*.XXXXXX` (falls back to `/tmp` if `$TMPDIR` is unset) and are cleaned up after each call. On macOS, `$TMPDIR` points to a per-user directory, preventing filename enumeration by other local users
-- Both models are called via the GitHub Copilot CLI, which authenticates via GitHub OAuth (no API keys needed). Auth can come from `gh` CLI, system keychain (`copilot login`), or environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`). Available models depend on the user's Copilot subscription
+- GPT is called via the GitHub Copilot CLI, which authenticates via GitHub OAuth (no API keys needed). Auth can come from `gh` CLI, system keychain (`copilot login`), or environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`). Available models depend on the user's Copilot subscription. Gemini is called via the Gemini CLI, which authenticates via Google Cloud credentials, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `gemini auth`
 - Higher ROUNDS values cost proportionally more API calls but improve deliberation quality — 2 rounds is the sweet spot for most reviews, 3-4 for complex architectural decisions
 - For very long prompts (>4000 chars), always use the temp file approach — never inline in bash. Prompts are always piped to the CLI via stdin, not command-line arguments
-- Legacy alias: `/brainstorm` maps to the same modes for backward compatibility
 - Copilot CLI: stderr is captured to a temp file for failure diagnostics rather than discarded. On success, stderr is cleaned up; on failure, its contents are reported
-- Copilot CLI runs with `--no-ask-user` to prevent interactive prompts. The `-s` (silent) flag outputs only the model's response. Prompts are piped via stdin (`< "$PROMPT_FILE"`) to avoid argv exposure and ARG_MAX limits
-- **Privacy notice:** Review prompts are routed through GitHub Copilot to external LLM providers (OpenAI for GPT, Anthropic for Claude). If the user's content contains secrets, credentials, or proprietary code they do not want shared with these providers, warn them before dispatching. Do not send content the user has explicitly marked as confidential
+- Copilot CLI runs with `--no-ask-user` to prevent interactive prompts and `-s` (silent) for clean output. Gemini CLI runs with `--approval-mode plan` to prevent agentic tool use and `--output-format text` for clean output. GPT prompts are piped via stdin (`< "$PROMPT_FILE"`); Gemini prompts are passed via `-p "$(cat "$PROMPT_FILE")"` to avoid double-send
+- **Privacy notice:** Review prompts are routed through GitHub Copilot to OpenAI (for GPT) and through the Gemini CLI to Google (for Gemini). If the user's content contains secrets, credentials, or proprietary code they do not want shared with these providers, warn them before dispatching. Do not send content the user has explicitly marked as confidential
 - Platform: tested on macOS with zsh; `timeout` command is not available on macOS so it is not used
