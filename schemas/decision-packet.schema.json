@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/maleick/peer-review/schemas/decision-packet.schema.json",
+  "title": "Decision Packet v2",
+  "description": "Machine-readable output schema for /peer-review Decision Packets. Conforms to the --json export format defined in SKILL.md Step 5.1.",
+  "type": "object",
+  "required": ["version", "mode", "title", "timestamp", "models", "rounds", "summary", "items", "recommended_path", "top_risks", "open_questions"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "2.0",
+      "description": "Schema version. Always '2.0' for Decision Packet v2."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["review", "idea", "redteam", "debate", "premortem", "advocate", "refactor", "deploy", "api", "perf", "diff", "quick", "gate", "delegate"],
+      "description": "The review mode used for this packet."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Short descriptive title for the review."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when the review completed."
+    },
+    "models": {
+      "type": "object",
+      "required": ["gpt", "gemini"],
+      "additionalProperties": false,
+      "properties": {
+        "gpt": {
+          "type": "string",
+          "description": "GPT model name used (e.g., 'gpt-5.4')."
+        },
+        "gemini": {
+          "type": "string",
+          "description": "Gemini model name used (e.g., 'gemini-3.1-pro-preview')."
+        }
+      }
+    },
+    "rounds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Number of cross-examination rounds completed."
+    },
+    "effort": {
+      "type": "string",
+      "enum": ["", "low", "medium", "high", "xhigh"],
+      "description": "Reasoning effort level used. Empty string means model default."
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "critical", "high", "medium", "low", "consensus", "sources"],
+      "additionalProperties": false,
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "critical": { "type": "integer", "minimum": 0 },
+        "high": { "type": "integer", "minimum": 0 },
+        "medium": { "type": "integer", "minimum": 0 },
+        "low": { "type": "integer", "minimum": 0 },
+        "consensus": { "type": "integer", "minimum": 0 },
+        "sources": {
+          "type": "object",
+          "required": ["gpt", "gemini", "both"],
+          "additionalProperties": false,
+          "properties": {
+            "gpt": { "type": "integer", "minimum": 0 },
+            "gemini": { "type": "integer", "minimum": 0 },
+            "both": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "tier", "item", "severity", "effort", "source", "confidence", "confidence_score", "depends_on", "conflicts_with"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Sequential item number within this packet."
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["ship_blocker", "before_next_sprint", "backlog"],
+            "description": "Tier assignment based on severity + confidence rules."
+          },
+          "item": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Description of the action item or finding."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"],
+            "description": "Issue severity level."
+          },
+          "effort": {
+            "type": "string",
+            "enum": ["XS", "S", "M", "L", "XL"],
+            "description": "Estimated effort to resolve (t-shirt size)."
+          },
+          "source": {
+            "type": "string",
+            "enum": ["gpt", "gemini", "consensus"],
+            "description": "Which model(s) identified this item."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["HIGH", "MEDIUM", "LOW"],
+            "description": "Confidence level based on cross-examination convergence."
+          },
+          "confidence_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Numeric confidence score (0.0-1.0). HIGH maps to 0.8-1.0, MEDIUM to 0.4-0.79, LOW to 0.0-0.39. Consensus items start at 0.9. Score is refined based on cross-exam: endorsement adds +0.1, rebuttal subtracts -0.2, silence is neutral."
+          },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "description": "List of item IDs that must be resolved before this one."
+          },
+          "conflicts_with": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "description": "List of item IDs that contradict this item."
+          },
+          "category": {
+            "type": "string",
+            "description": "Optional category tag (e.g., 'Security & Safety', 'Architecture & Design')."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional file path associated with this finding."
+          },
+          "line_start": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional starting line number in the referenced file."
+          },
+          "line_end": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional ending line number in the referenced file."
+          },
+          "recommendation": {
+            "type": "string",
+            "description": "Optional specific recommendation for resolving this item."
+          }
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["items", "description", "resolution"],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "minItems": 2
+          },
+          "description": { "type": "string" },
+          "resolution": { "type": "string" }
+        }
+      },
+      "description": "Cross-item conflicts with suggested resolutions."
+    },
+    "recommended_path": {
+      "type": "string",
+      "description": "Single clear recommendation based on all perspectives."
+    },
+    "top_risks": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Top risks to mitigate, with specific mitigations."
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Things that need more investigation before proceeding."
+    },
+    "modes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of modes when multi-mode dispatch was used."
+    },
+    "cross_mode": {
+      "type": "object",
+      "properties": {
+        "collisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mode_a": { "type": "string" },
+              "item_a": { "type": "string" },
+              "mode_b": { "type": "string" },
+              "item_b": { "type": "string" },
+              "conflict": { "type": "string" },
+              "resolution": { "type": "string" }
+            }
+          }
+        },
+        "reinforcements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "concern": { "type": "string" },
+              "flagged_by": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "combined_severity": { "type": "string" }
+            }
+          }
+        }
+      },
+      "description": "Cross-mode analysis results (only present with --modes flag)."
+    },
+    "redacted_fields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of field paths that were redacted (only present with --json-redacted)."
+    }
+  }
+}

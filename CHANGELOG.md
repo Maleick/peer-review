@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] — 2026-03-30
+
+### Added
+
+- **Review Gate mode** (`/peer-review gate`) — proactive quality check that reviews Claude's own output via GPT and Gemini before proceeding. Dispatches Claude's last response to both models with gate-specific prompts (correctness checker + architecture checker). Returns ALLOW/FLAGGED/BLOCKED verdict. Inspired by OpenAI Codex plugin stop-gate pattern, adapted for skill architecture (Step 10)
+- **Task Delegation mode** (`/peer-review delegate`) — hands off implementation tasks to GPT/Gemini with write-capable permissions. External models generate patches in unified diff format. User reviews and chooses between GPT's or Gemini's implementation before applying. Safety constraints prevent auto-application (Step 11)
+- **Background Execution** (`--background` flag) — dispatch reviews asynchronously with job management. New commands: `/peer-review status` (list jobs), `/peer-review result [job-id]` (retrieve completed results). Jobs persist in `JOB_DIR` with manifest tracking (Step 12)
+- **Session Resumability** (`--resume [job-id]` flag) — continue prior review sessions across conversation turns. Saves session state (model outputs, decision packet, cherry-pick state) to persistent files. Supports resuming cherry-pick, adding cross-exam rounds, or re-reviewing (Step 13)
+- **Effort Control** (`--effort <level>` flag) — control reasoning effort for dispatched models. Values: low, medium, high, xhigh. Maps to `--reasoning-effort` for Codex CLI and `--thinking-budget-tokens` for Gemini CLI
+- **Model Aliases** — shorthand aliases for common models: `spark` (gpt-5.3-codex-spark), `mini` (gpt-5.4-mini), `flash` (gemini-2.5-flash), `pro` (gemini-2.5-pro). Use with `--gpt-model` and `--gemini-model` flags
+- **Formal Output Schema** (`schemas/decision-packet.schema.json`) — JSON Schema for Decision Packet v2 output. Validates `--json` export format. Adds per-finding `confidence_score` (0.0-1.0 numeric) alongside existing HIGH/MEDIUM/LOW labels. Optional `file`, `line_start`, `line_end`, and `recommendation` fields for code-location-specific findings
+
+### Changed
+
+- JSON export (`--json`) now includes `confidence_score` (numeric 0.0-1.0), `effort` level, and optional file/line location fields per item
+- Help mode updated with new modes (gate, delegate), flags (--effort, --background, --resume), model aliases, and job management commands
+- Skill description frontmatter expanded to cover all new capabilities
+
 ## [0.9.0] — 2026-03-30
 
 ### Added
