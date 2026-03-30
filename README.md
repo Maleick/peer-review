@@ -1,14 +1,17 @@
 # peer-review
 
-Get a second opinion from other AI models without leaving Claude Code. This skill sends your prompt to GPT and a second Claude instance (via the GitHub Copilot CLI), has them debate each other, and brings back a structured summary you can act on.
+Get a second opinion from other AI models without leaving Claude Code. This skill sends your prompt to GPT (via OpenAI Codex CLI) and Gemini (via Gemini CLI), has them debate each other, and brings back a structured summary you can act on.
 
 ## Quick Start
 
 **Prerequisites:**
 
 1. [Claude Code](https://claude.ai/download) installed
-2. [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli) installed (`brew install github/gh/copilot-cli`)
-3. GitHub authenticated (`gh auth login`) with a Copilot subscription
+2. [OpenAI Codex CLI](https://github.com/openai/codex) installed (`npm install -g @openai/codex` or `brew install --cask codex`)
+3. [Gemini CLI](https://github.com/google/gemini-cli) installed (`npm install -g @google/gemini-cli`)
+4. Authenticated: `codex login` (or set `OPENAI_API_KEY`) and `gemini auth` (or set `GEMINI_API_KEY`)
+
+**Optional fallback:** [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli) — used for GPT if Codex CLI is unavailable (`brew install github/gh/copilot-cli`, then `gh auth login`)
 
 **Install the skill:**
 
@@ -28,7 +31,7 @@ ln -s ~/Projects/peer-review/.claude/skills/peer-review ~/.claude/skills/peer-re
 /peer-review Should we use Redis or Memcached for our session cache?
 ```
 
-That's it. Claude dispatches your question to GPT-5.4 and Claude Sonnet, they each review it from different angles, debate each other's responses, and you get back a numbered list of action items you can accept, cherry-pick, or discard.
+That's it. Claude dispatches your question to GPT-5.4 (via Codex CLI) and Gemini (via Gemini CLI), they each review it from different angles, debate each other's responses, and you get back a numbered list of action items you can accept, cherry-pick, or discard.
 
 ## What Happens When You Run It
 
@@ -36,14 +39,14 @@ That's it. Claude dispatches your question to GPT-5.4 and Claude Sonnet, they ea
 You type:  /peer-review We plan to add WebSocket support to the API
 
 Claude does this:
-  1. Sends your prompt to GPT (as an "implementation reviewer" — finds edge cases, concrete risks)
-  2. Sends your prompt to Claude Sonnet (as a "strategic reviewer" — finds architectural issues)
+  1. Sends your prompt to GPT via Codex CLI (as an "implementation reviewer" — finds edge cases, concrete risks)
+  2. Sends your prompt to Gemini via Gemini CLI (as a "strategic reviewer" — finds architectural issues)
   3. Shows each model the other's response and asks them to critique it
   4. Reads everything and produces a Decision Packet with numbered action items
   5. Asks you: Accept all? Cherry-pick? Refine? Discard?
 ```
 
-The key insight: each model gets a **different reviewer persona** tuned to its strengths. GPT focuses on tactical implementation risks. Claude Sonnet focuses on strategic architecture concerns. Then they challenge each other, which filters out weak arguments and surfaces genuine consensus.
+The key insight: each model gets a **different reviewer persona** tuned to its strengths. GPT focuses on tactical implementation risks. Gemini focuses on strategic architecture concerns. Then they challenge each other, which filters out weak arguments and surfaces genuine consensus.
 
 ## Modes
 
@@ -64,7 +67,7 @@ Every mode gives the two models different roles. Pick the one that matches what 
 | `/peer-review diff`              | Review your staged/unstaged git changes               | `/peer-review diff` or `/peer-review diff --branch main`   |
 | `/peer-review quick <prompt>`    | Fast one-round opinion, no debate                     | `/peer-review quick Is this regex safe?`                   |
 | `/peer-review gpt <prompt>`      | GPT only (single model)                               | `/peer-review gpt Explain this error message`              |
-| `/peer-review claude <prompt>`   | Claude only (single model)                            | `/peer-review claude Review this SQL query`                |
+| `/peer-review gemini <prompt>`   | Gemini only (single model)                            | `/peer-review gemini Review this SQL query`                |
 | `/peer-review help`              | Show all modes and options                            |                                                            |
 | `/peer-review history`           | Show previous reviews this session                    |                                                            |
 
@@ -77,7 +80,7 @@ Legacy alias: `/brainstorm` maps to the same modes.
 --verbose                 # show exact prompts sent and raw model outputs
 --quiet                   # skip model sections, show only the Decision Packet
 --gpt-model <model>       # override GPT model for this run
---claude-model <model>    # override Claude model for this run
+--gemini-model <model>    # override Gemini model for this run
 --branch [name]           # for diff mode: compare against a branch (default: main)
 --steelman                # steelman cross-exam: models strengthen each other's arguments before critiquing
 --iterate [N]             # autoresearch loop: review → auto-fix → re-review → converge (default: 3 iterations)
@@ -89,7 +92,7 @@ Instead of adversarial cross-examination (find weaknesses), steelman mode asks e
 
 ### Iteration Mode (`--iterate`)
 
-Turns peer-review into a convergence loop. After each review, Claude Opus auto-accepts HIGH CONFIDENCE items, applies fixes to the file, and re-reviews. Repeats until no new HIGH items appear or max iterations reached.
+Turns peer-review into a convergence loop. After each review, Claude auto-accepts HIGH CONFIDENCE items, applies fixes to the file, and re-reviews. Repeats until no new HIGH items appear or max iterations reached.
 
 ```
 /peer-review refactor src/auth.ts --iterate 3
@@ -107,13 +110,14 @@ Edit the config block at the top of `.claude/skills/peer-review/SKILL.md`:
 
 ```
 GPT_MODEL: gpt-5.4                # update when new models ship
-CLAUDE_MODEL: claude-sonnet-4.6    # must differ from the orchestrating Claude instance
+GEMINI_MODEL: gemini-3.1-pro-preview  # update when new models ship
+GPT_CLI: codex                     # "codex" (primary) or "copilot" (fallback)
 ROUNDS: 2                          # cross-examination rounds (1-4)
 MAX_TOTAL_PROMPT_CHARS: 40000      # hard ceiling per dispatch
 MAX_CROSSEXAM_CHARS: 12000         # truncate peer output in cross-exam rounds
 ```
 
-**To see available models**, run: `copilot -s --no-ask-user -p "List all available models"`
+**To see available models:** For Codex CLI: `codex exec -p "hello" --model <name> --sandbox read-only --ask-for-approval never`. For Gemini CLI: `gemini -p "hello" --model <name> --approval-mode plan --output-format text`
 
 ### Rounds
 
@@ -137,13 +141,13 @@ MAX_CROSSEXAM_CHARS: 12000         # truncate peer output in cross-exam rounds
 
 [Concrete risks, edge cases, severity ratings, specific fixes]
 
-### Claude Sonnet (Strategic Reviewer)
+### Gemini (Strategic Reviewer)
 
 [Systemic risks, alternative approaches, long-term implications]
 
 ### Cross-Examination Highlights
 
-- GPT challenged Claude's caching suggestion as premature optimization
+- GPT challenged Gemini's caching suggestion as premature optimization
 - Both converged on the need for per-tenant rate limiting
 
 ### Decision Packet
@@ -154,7 +158,7 @@ Actionable items:
 
 1. [HIGH CONFIDENCE] Add per-tenant limits _(consensus)_
 2. [MEDIUM] Consider token bucket over sliding window _(GPT)_
-3. [LOW] Evaluate distributed rate limiting _(Claude, challenged by GPT)_
+3. [LOW] Evaluate distributed rate limiting _(Gemini, challenged by GPT)_
 
 ### Priority Matrix
 
@@ -172,10 +176,10 @@ What would you like to do with this feedback?
 
 ## How It Works Under the Hood
 
-1. Claude verifies the Copilot CLI is installed and authenticated
+1. Claude verifies the Codex CLI and Gemini CLI are installed and authenticated (falls back to Copilot CLI for GPT if needed)
 2. Scans your prompt for sensitive data (API keys, credentials) and warns before sending
 3. Builds role-differentiated prompts for each model
-4. Dispatches to both models **in parallel** via the Copilot CLI
+4. Dispatches to both models **in parallel** via their respective CLIs
 5. Each cross-examination round includes the original task, the model's own prior response, and the peer's response — so models maintain context across rounds
 6. Synthesizes all rounds into a Decision Packet with confidence levels based on cross-exam convergence
 7. Presents the cherry-pick menu
@@ -184,16 +188,18 @@ What would you like to do with this feedback?
 
 ## Troubleshooting
 
-| Problem                                        | Fix                                                                          |
-| ---------------------------------------------- | ---------------------------------------------------------------------------- |
-| `PREFLIGHT_FAIL: copilot CLI not installed`    | `brew install github/gh/copilot-cli` then `gh auth login`                    |
-| `PREFLIGHT_FAIL: GitHub auth not configured`   | `gh auth login` or `copilot login`                                           |
-| `GPT_FAILED` or `CLAUDE_FAILED` with exit code | Re-authenticate: `gh auth login`. Check your Copilot subscription is active. |
-| Rate limited                                   | Wait a few minutes, or use `/peer-review quick` for a lighter call           |
-| Timeout (no response after 3 min)              | Prompt may be too large. Split into smaller reviews.                         |
-| Empty/partial output                           | Model returned a stub. Retry, or use single-target mode to isolate.          |
+| Problem                                         | Fix                                                                                      |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `PREFLIGHT_FAIL: No GPT CLI found`              | Install Codex CLI: `npm install -g @openai/codex`, then `codex login`                    |
+| `PREFLIGHT_FAIL: Gemini CLI not found`           | Install Gemini CLI: `npm install -g @google/gemini-cli`, then `gemini auth`              |
+| `PREFLIGHT_WARN: Codex CLI auth may not be configured` | Run `codex login` or set `OPENAI_API_KEY`                                          |
+| `GPT_FAILED` with exit code                     | Re-authenticate: `codex login`. If using Copilot fallback: `gh auth login`               |
+| `GEMINI_FAILED` with exit code                  | Re-authenticate: `gemini auth` or check `GEMINI_API_KEY`                                 |
+| Rate limited                                    | Wait a few minutes, or use `/peer-review quick` for a lighter call                       |
+| Timeout (no response after 3 min)               | Prompt may be too large. Split into smaller reviews.                                     |
+| Empty/partial output                            | Model returned a stub. Retry, or use single-target mode to isolate.                      |
 
-**Debug tip:** Test each model independently with `/peer-review gpt <prompt>` or `/peer-review claude <prompt>`.
+**Debug tip:** Test each model independently with `/peer-review gpt <prompt>` or `/peer-review gemini <prompt>`.
 
 ## License
 

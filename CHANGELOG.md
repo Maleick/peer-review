@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] — 2026-03-30
+
+### Breaking
+
+- **Copilot CLI replaced by Codex CLI + Gemini CLI as primary providers** — GPT dispatch now uses OpenAI Codex CLI (`codex exec`) instead of GitHub Copilot CLI. Gemini dispatch continues using Gemini CLI directly. Copilot CLI remains as an optional fallback for GPT.
+- Install Codex CLI: `npm install -g @openai/codex` or `brew install --cask codex`
+- Install Gemini CLI: `npm install -g @google/gemini-cli`
+- Auth: `codex login` (or `OPENAI_API_KEY`) for GPT, `gemini auth` (or `GEMINI_API_KEY`) for Gemini
+
+### Added
+
+- **Auto-install offers** — if Codex CLI or Gemini CLI are missing during pre-flight, the skill offers to install them automatically
+- **GPT provider fallback** — if Codex CLI is unavailable, automatically falls back to Copilot CLI for GPT dispatch
+- **Codex sandbox mode restored** — `--sandbox read-only --ask-for-approval never` flags provide file system isolation during review (was lost in Copilot CLI migration)
+- `GPT_CLI` config option to explicitly choose `codex` (default) or `copilot` as GPT provider
+
+### Changed
+
+- Pre-flight checks now detect Codex CLI first, then Copilot CLI as fallback, then Gemini CLI
+- GPT dispatch template uses `codex exec -p "$(cat "$PROMPT_FILE")" --model <model> --sandbox read-only --ask-for-approval never`
+- Copilot CLI dispatch template preserved as fallback (used when `GPT_CLI=copilot`)
+- Privacy notice updated: prompts go directly to OpenAI (via Codex) instead of through GitHub infrastructure
+
 ## [0.7.0] — 2026-03-17
 
 ### Changed

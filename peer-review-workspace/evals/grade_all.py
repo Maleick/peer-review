@@ -217,7 +217,7 @@ ASSERTION_CHECKS: dict[str, Checker] = {
         ["inject", "escap", "heredoc", "sanitiz", "prompt injection"], 1
     ),
     "identifies-cli-dependency": keywords_present(
-        ["CLI", "dependency", "copilot", "coupling", "version", "model"], 2
+        ["CLI", "dependency", "codex", "copilot", "gemini", "coupling", "version", "model"], 2
     ),
     "proposes-alternatives": keywords_present(
         ["alternative", "instead", "consider", "suggest", "could", "recommend"], 1

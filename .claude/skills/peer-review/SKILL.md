@@ -1,10 +1,10 @@
 ---
-description: "Multi-LLM peer review — send plans, ideas, or code to GPT (via GitHub Copilot CLI) and Gemini (via Gemini CLI) for structured peer review with cross-examination, then cherry-pick feedback. Decision Packet v2 with tiered output (Ship Blocker / Before Next Sprint / Backlog), dependency arrows, effort estimates, conflict flags, and JSON export. Tie-breaker model resolves HIGH CONFIDENCE deadlocks. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Supports parallel multi-mode dispatch (--modes redteam,deploy,perf) with collision detection. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Supports --rounds N, --verbose, --quiet, --gpt-model, --gemini-model, --steelman, --iterate, --json, and --modes flags."
+description: "Multi-LLM peer review — send plans, ideas, or code to GPT (via OpenAI Codex CLI) and Gemini (via Gemini CLI) for structured peer review with cross-examination, then cherry-pick feedback. Decision Packet v2 with tiered output (Ship Blocker / Before Next Sprint / Backlog), dependency arrows, effort estimates, conflict flags, and JSON export. Tie-breaker model resolves HIGH CONFIDENCE deadlocks. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Supports parallel multi-mode dispatch (--modes redteam,deploy,perf) with collision detection. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Supports --rounds N, --verbose, --quiet, --gpt-model, --gemini-model, --steelman, --iterate, --json, and --modes flags. Falls back to GitHub Copilot CLI if Codex CLI is unavailable."
 ---
 
 # /peer-review — Multi-LLM Peer Review & Brainstorm
 
-A multi-round orchestration skill that dispatches prompts to GPT via the GitHub Copilot CLI and Gemini via the Gemini CLI, has them cross-examine each other's responses across configurable rounds, and synthesizes the results into actionable feedback. Each mode uses role-differentiated prompts that play to each model's strengths.
+A multi-round orchestration skill that dispatches prompts to GPT via the OpenAI Codex CLI (preferred) or GitHub Copilot CLI (fallback) and Gemini via the Gemini CLI, has them cross-examine each other's responses across configurable rounds, and synthesizes the results into actionable feedback. Each mode uses role-differentiated prompts that play to each model's strengths.
 
 ## Configuration
 
@@ -13,7 +13,9 @@ These values live at the top of the skill so they're easy to update when new mod
 ```
 GPT_MODEL: gpt-5.4                # pin to specific model; update when new models ship
 GEMINI_MODEL: gemini-3.1-pro-preview  # pin to specific model; Gemini is a different provider (Google) so no self-review bias concern
-COPILOT_FLAGS: -s --no-ask-user
+GPT_CLI: codex                     # primary: "codex" (OpenAI Codex CLI), fallback: "copilot" (GitHub Copilot CLI)
+CODEX_FLAGS: exec --sandbox read-only --ask-for-approval never
+COPILOT_FLAGS: -s --no-ask-user    # fallback GPT CLI flags (used only when GPT_CLI=copilot)
 GEMINI_FLAGS: -p --model <GEMINI_MODEL> --approval-mode plan --output-format text
 ROUNDS: 2              # cross-examination rounds (1-4); 1 = no cross-exam, 2 = default, 3-4 = deep deliberation
 TIMEOUT_HARD: 120      # seconds — hard cutoff per CLI call
@@ -21,7 +23,7 @@ MAX_CROSSEXAM_CHARS: 12000  # truncate peer output before feeding into cross-exa
 MAX_TOTAL_PROMPT_CHARS: 40000  # hard ceiling per dispatch — budget original input + file context + own prior + peer response
 ```
 
-The `--gpt-model` and `--gemini-model` per-invocation flags override the pinned values for that invocation. To see available models for GPT, check the Copilot CLI documentation or test a model name with `copilot -s --no-ask-user --model <name> -p "hello"`. For Gemini, test with `gemini -p "hello" --model <name> --approval-mode plan --output-format text`. Set `ROUNDS` higher (3-4) for complex architectural decisions where you want thorough back-and-forth deliberation. Use 1 for quick feedback without cross-examination. `MAX_TOTAL_PROMPT_CHARS` prevents prompt blowouts at 3+ rounds — before every dispatch, sum the character lengths of all sections being sent and truncate the largest non-essential section if the total exceeds the budget.
+The `--gpt-model` and `--gemini-model` per-invocation flags override the pinned values for that invocation. To see available models for GPT via Codex, test with `codex exec -p "hello" --model <name> --sandbox read-only --ask-for-approval never`. For GPT via Copilot (fallback), test with `copilot -s --no-ask-user --model <name> -p "hello"`. For Gemini, test with `gemini -p "hello" --model <name> --approval-mode plan --output-format text`. Set `ROUNDS` higher (3-4) for complex architectural decisions where you want thorough back-and-forth deliberation. Use 1 for quick feedback without cross-examination. `MAX_TOTAL_PROMPT_CHARS` prevents prompt blowouts at 3+ rounds — before every dispatch, sum the character lengths of all sections being sent and truncate the largest non-essential section if the total exceeds the budget.
 
 ## Modes
 
@@ -52,29 +54,83 @@ If no subcommand is given, default to `review` mode.
 
 ### Step 0 — Pre-flight Checks
 
-Before dispatching, verify the CLI is available and authenticated:
+Before dispatching, verify the CLIs are available and authenticated. Codex CLI and Gemini CLI are the primary providers. Copilot CLI is an optional fallback for GPT if Codex is unavailable.
+
+**GPT provider detection (Codex preferred, Copilot fallback):**
 
 ```bash
-command -v copilot >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: copilot CLI not installed (install via: brew install github/gh/copilot-cli)"
+if command -v codex >/dev/null 2>&1; then
+  GPT_CLI="codex"
+  echo "PREFLIGHT_OK: Codex CLI found"
+  # Verify auth
+  codex exec -p "test" --model gpt-5.4 --sandbox read-only --ask-for-approval never >/dev/null 2>&1 || echo "PREFLIGHT_WARN: Codex CLI auth may not be configured (run: codex login or set OPENAI_API_KEY)"
+elif command -v copilot >/dev/null 2>&1; then
+  GPT_CLI="copilot"
+  echo "PREFLIGHT_WARN: Codex CLI not found — falling back to Copilot CLI for GPT"
+  gh auth status 2>&1 | grep -q "Logged in" || copilot --version >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: Copilot auth not configured (run: gh auth login or copilot login)"
+else
+  GPT_CLI="none"
+  echo "PREFLIGHT_FAIL: No GPT CLI found"
+fi
 ```
+
+**Gemini CLI detection:**
 
 ```bash
-gh auth status 2>&1 | grep -q "Logged in" || copilot --version >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: GitHub auth not configured (run: gh auth login or copilot login)"
+if command -v gemini >/dev/null 2>&1; then
+  echo "PREFLIGHT_OK: Gemini CLI found"
+  gemini -p "test" --model gemini-3.1-pro-preview --approval-mode plan --output-format text >/dev/null 2>&1 || echo "PREFLIGHT_WARN: Gemini CLI auth may not be configured (run: gemini auth or set GEMINI_API_KEY)"
+else
+  echo "PREFLIGHT_FAIL: Gemini CLI not found"
+fi
 ```
 
-```bash
-command -v gemini >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: gemini CLI not installed (install via: npm install -g @google/gemini-cli or brew install gemini)"
+**Install offers — if either primary CLI is missing, offer to install:**
+
+If `codex` is not found (and no `copilot` fallback either), present:
+
+```
+GPT CLI not found. Install one of these to enable GPT reviews:
+
+  **Codex CLI (recommended):**
+    npm install -g @openai/codex
+    — or —
+    brew install --cask codex
+  Then authenticate: codex login (or set OPENAI_API_KEY)
+
+  **Copilot CLI (alternative):**
+    brew install github/gh/copilot-cli
+  Then authenticate: gh auth login (or copilot login)
+
+Would you like me to install Codex CLI now? (yes/no)
 ```
 
-```bash
-gemini -p "test" --model gemini-3.1-pro-preview --approval-mode plan --output-format text >/dev/null 2>&1 || echo "PREFLIGHT_FAIL: Gemini CLI auth not configured (run: gemini auth or set GEMINI_API_KEY)"
+If the user says yes, run `npm install -g @openai/codex` and re-check. If npm is unavailable, try `brew install --cask codex`.
+
+If `gemini` is not found, present:
+
+```
+Gemini CLI not found. Install to enable Gemini reviews:
+
+  npm install -g @google/gemini-cli
+  — or —
+  brew install gemini
+Then authenticate: gemini auth (or set GEMINI_API_KEY / GOOGLE_API_KEY)
+
+Would you like me to install Gemini CLI now? (yes/no)
 ```
 
-If the Copilot CLI is missing, tell the user and provide the install command. If auth fails both checks (neither `gh auth status` nor `copilot --version` succeeds), tell the user to authenticate. Copilot auth may come from `gh` CLI, `copilot login`, or environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`) — any one is sufficient. Gemini auth may come from Google Cloud credentials, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `gemini auth`.
+If the user says yes, run `npm install -g @google/gemini-cli` and re-check.
+
+**If both CLIs are missing after install offers**, abort with: "No review CLIs available. Install at least one GPT provider (Codex or Copilot) and Gemini CLI to use peer review."
+
+**If only one provider is available**, continue in degraded mode with a warning: "Running with {available} only — {missing} reviews will be skipped."
+
+**Auth notes:** Codex CLI auth may come from `codex login` (ChatGPT OAuth) or `OPENAI_API_KEY` environment variable. Copilot auth may come from `gh` CLI, `copilot login`, or environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`) — any one is sufficient. Gemini auth may come from Google Cloud credentials, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `gemini auth`.
 
 ### Step 0.1 — Model Validation
 
-Report the resolved models briefly: "Using GPT: {GPT_MODEL}, Gemini: {GEMINI_MODEL}"
+Report the resolved models and CLI briefly: "Using GPT: {GPT_MODEL} via {GPT_CLI}, Gemini: {GEMINI_MODEL} via gemini CLI"
 
 If a `--gpt-model` or `--gemini-model` override was given, use that instead of the pinned config value for this invocation. Validate the model name matches `[a-zA-Z0-9._-]+` — reject and warn on invalid names.
 
@@ -315,6 +371,27 @@ Use `PEER_REVIEW_EOF_${GPT_HEX}` for the GPT heredoc and `PEER_REVIEW_EOF_${GEMI
 
 **Mandatory — enforce MAX_TOTAL_PROMPT_CHARS before dispatch:** Sum the character lengths of all content being sent (role prompt + user content + file context + own prior response + peer response). If the total exceeds `MAX_TOTAL_PROMPT_CHARS` (40000), truncate the largest non-essential section (file context first, then peer response) at a sentence boundary with a notice. In Round 1, never truncate the user's original prompt. In cross-exam rounds (2+), the ORIGINAL TASK section may be truncated to 4000 chars to make room for prior responses and peer output. Role prompts are never truncated.
 
+**GPT dispatch — Codex CLI (primary):**
+
+```bash
+PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gpt.XXXXXX)
+STDERR_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gpt-err.XXXXXX)
+chmod 600 "$PROMPT_FILE" "$STDERR_FILE"
+trap 'rm -f "$PROMPT_FILE" "$STDERR_FILE"' EXIT
+python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
+<full GPT prompt here>
+PEER_REVIEW_EOF_<8_RANDOM_HEX>
+codex exec -p "$(cat "$PROMPT_FILE")" --model <RESOLVED_GPT_MODEL> --sandbox read-only --ask-for-approval never 2>"$STDERR_FILE"; EXIT_CODE=$?
+if [ $EXIT_CODE -ne 0 ]; then
+  echo "GPT_FAILED: exit code $EXIT_CODE"
+  echo "GPT_STDERR: $(cat "$STDERR_FILE")"
+fi
+rm -f "$PROMPT_FILE" "$STDERR_FILE"
+trap - EXIT
+```
+
+**GPT dispatch — Copilot CLI (fallback, used when GPT_CLI=copilot):**
+
 ```bash
 PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gpt.XXXXXX)
 STDERR_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gpt-err.XXXXXX)
@@ -331,6 +408,8 @@ fi
 rm -f "$PROMPT_FILE" "$STDERR_FILE"
 trap - EXIT
 ```
+
+**Gemini dispatch:**
 
 ```bash
 PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}"/peer-review-gemini.XXXXXX)
@@ -352,12 +431,12 @@ trap - EXIT
 **Security notes:**
 
 - Prompts are piped via stdin into a Python one-liner that writes to the temp file — this avoids all shell escaping issues (no single-quote, backtick, or `$()` interpretation)
-- **Prompt is piped via stdin** (`< "$PROMPT_FILE"`) instead of passed as a command-line argument. This prevents prompt content from appearing in process listings (`ps`) and avoids the `ARG_MAX` limit (~1MB on macOS) that would crash large prompts
 - **CRITICAL — heredoc delimiter randomization:** The template uses `PEER_REVIEW_EOF_<8_RANDOM_HEX>` as a placeholder. You MUST replace `<8_RANDOM_HEX>` with 8 fresh random hex characters (e.g., `a3f7b21e`) on every invocation. Both the opening and closing delimiter must match. Never reuse a previous suffix. This prevents malicious user input from injecting the delimiter string to escape the heredoc and execute arbitrary shell commands
 - `chmod 600` ensures the temp file is only readable by the current user
 - The `trap` ensures temp files are cleaned up even if the CLI call fails or times out
-- Copilot CLI runs with `--no-ask-user` to prevent interactive prompts during automated dispatch. The `-s` flag ensures only the response is output (no stats/metadata). Gemini CLI runs with `--approval-mode plan` to prevent agentic tool use (read-only mode) and `--output-format text` for clean output
-- **IMPORTANT — Gemini uses `-p` flag:** The Gemini prompt is passed via `-p "$(cat "$PROMPT_FILE")"` instead of stdin pipe, because `-p` appends to stdin and piping would cause double-send
+- **Codex CLI** runs with `--sandbox read-only` to prevent the reviewer model from modifying files, and `--ask-for-approval never` to prevent interactive prompts. Prompts are passed via `-p "$(cat "$PROMPT_FILE")"` — the exec subcommand uses `-p` for non-interactive prompt passing
+- **Copilot CLI** (fallback) runs with `--no-ask-user` to prevent interactive prompts. The `-s` flag ensures only the response is output (no stats/metadata). Prompts are piped via stdin (`< "$PROMPT_FILE"`) to prevent prompt content from appearing in process listings (`ps`) and to avoid the `ARG_MAX` limit
+- **Gemini CLI** runs with `--approval-mode plan` to prevent agentic tool use (read-only mode) and `--output-format text` for clean output. Prompts are passed via `-p "$(cat "$PROMPT_FILE")"` instead of stdin pipe, because `-p` appends to stdin and piping would cause double-send
 - **Stderr is captured to a temp file** (not discarded) so failure diagnostics are available. On success, the stderr file is cleaned up silently. On failure, stderr content is reported alongside the exit code
 
 **Do NOT use the `timeout` command** — it doesn't exist on macOS. The CLIs have internal timeouts. If a response takes longer than expected, the Bash tool's own timeout will catch it. Set the Bash timeout to 180000ms (3 minutes) to give the CLIs room. If the Bash tool times out, report: "{Model} timed out after 3 minutes. This usually means the model is overloaded or the prompt is too large. You can retry with `/peer-review quick` for a shorter exchange, or try again later."
@@ -373,10 +452,12 @@ If a CLI call fails:
 
 Common failures:
 
-- `command not found` — CLI not installed
+- `command not found` — CLI not installed. Offer installation (see Step 0)
 - Non-zero exit — auth error, rate limit, or model unavailable
 - Empty or partial output — if the response is fewer than 50 characters (excluding whitespace), treat it as a failure (stub, error message, or truncated response). Report: "{Model} returned a partial/empty response ({N} chars). Treating as unavailable for this review."
 - **Rate limiting** — look for `rate limit`, `429`, `too many requests`, or `quota` in stderr. If detected, report: "{Model} is rate-limited. Wait a few minutes before retrying, or continue with the other model's results."
+- **Codex-specific failures** — Check stderr for structured error messages. Common issues: expired OAuth session (run `codex login`), missing `OPENAI_API_KEY`, quota exceeded, model not available. If Codex fails and Copilot CLI is available, offer to retry with Copilot as fallback: "Codex CLI failed. Want me to retry with Copilot CLI?"
+- **Copilot-specific failures** — Auth error (run `gh auth login` or `copilot login`), subscription not active, model not available via Copilot
 - **Gemini-specific failures** — Gemini CLI uses distinct exit codes. Check stderr for structured error messages. Common issues: expired Google credentials (run `gemini auth`), quota exceeded, model not available in region
 - **Bash tool timeout** — the 180s Bash timeout was hit. See timeout guidance in Step 2
 
@@ -500,7 +581,7 @@ Render your verdict:
 3. Final recommendation: A, B, or SYNTHESIS
 ```
 
-**Dispatch** using the same bash template as Step 2, with `--model gpt-5.4-mini`. Use the same security practices (temp file, stdin pipe, randomized heredoc, stderr capture, trap cleanup).
+**Dispatch** using the same bash template as Step 2 (Codex or Copilot, depending on GPT_CLI), with `--model gpt-5.4-mini`. Use the same security practices (temp file, randomized heredoc, stderr capture, trap cleanup).
 
 **Present tie-breaker results** in the Step 5 output:
 
@@ -987,10 +1068,13 @@ REVIEW_LOG[]:
 ## Notes
 
 - Temp files use `$TMPDIR/peer-review-*.XXXXXX` (falls back to `/tmp` if `$TMPDIR` is unset) and are cleaned up after each call. On macOS, `$TMPDIR` points to a per-user directory, preventing filename enumeration by other local users
-- GPT is called via the GitHub Copilot CLI, which authenticates via GitHub OAuth (no API keys needed). Auth can come from `gh` CLI, system keychain (`copilot login`), or environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`). Available models depend on the user's Copilot subscription. Gemini is called via the Gemini CLI, which authenticates via Google Cloud credentials, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `gemini auth`
+- **GPT provider hierarchy:** Codex CLI (preferred) → Copilot CLI (fallback). Codex CLI authenticates via ChatGPT OAuth (`codex login`) or `OPENAI_API_KEY` environment variable. Copilot CLI authenticates via GitHub OAuth — auth can come from `gh` CLI, system keychain (`copilot login`), or environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`). Gemini is called via the Gemini CLI, which authenticates via Google Cloud credentials, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `gemini auth`
+- **Codex CLI** runs with `exec` subcommand for non-interactive mode, `--sandbox read-only` to prevent file modifications, and `--ask-for-approval never` to prevent interactive prompts. Prompts are passed via `-p "$(cat "$PROMPT_FILE")"`
+- **Copilot CLI** (fallback) runs with `--no-ask-user` to prevent interactive prompts and `-s` (silent) for clean output. GPT prompts are piped via stdin (`< "$PROMPT_FILE"`)
+- **Gemini CLI** runs with `--approval-mode plan` to prevent agentic tool use and `--output-format text` for clean output. Gemini prompts are passed via `-p "$(cat "$PROMPT_FILE")"` to avoid double-send
 - Higher ROUNDS values cost proportionally more API calls but improve deliberation quality — 2 rounds is the sweet spot for most reviews, 3-4 for complex architectural decisions
-- For very long prompts (>4000 chars), always use the temp file approach — never inline in bash. Prompts are always piped to the CLI via stdin, not command-line arguments
-- Copilot CLI: stderr is captured to a temp file for failure diagnostics rather than discarded. On success, stderr is cleaned up; on failure, its contents are reported
-- Copilot CLI runs with `--no-ask-user` to prevent interactive prompts and `-s` (silent) for clean output. Gemini CLI runs with `--approval-mode plan` to prevent agentic tool use and `--output-format text` for clean output. GPT prompts are piped via stdin (`< "$PROMPT_FILE"`); Gemini prompts are passed via `-p "$(cat "$PROMPT_FILE")"` to avoid double-send
-- **Privacy notice:** Review prompts are routed through GitHub Copilot to OpenAI (for GPT) and through the Gemini CLI to Google (for Gemini). If the user's content contains secrets, credentials, or proprietary code they do not want shared with these providers, warn them before dispatching. Do not send content the user has explicitly marked as confidential
+- For very long prompts (>4000 chars), always use the temp file approach — never inline in bash
+- Stderr is captured to a temp file for failure diagnostics rather than discarded. On success, stderr is cleaned up; on failure, its contents are reported
+- **Privacy notice:** Review prompts are sent directly to OpenAI (via Codex CLI) or routed through GitHub Copilot to OpenAI (via Copilot CLI fallback), and sent to Google (via Gemini CLI). If the user's content contains secrets, credentials, or proprietary code they do not want shared with these providers, warn them before dispatching. Do not send content the user has explicitly marked as confidential
+- **Installation:** Codex CLI: `npm install -g @openai/codex` or `brew install --cask codex`. Gemini CLI: `npm install -g @google/gemini-cli` or `brew install gemini`. Copilot CLI (optional fallback): `brew install github/gh/copilot-cli`
 - Platform: tested on macOS with zsh; `timeout` command is not available on macOS so it is not used
