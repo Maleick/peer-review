@@ -1,5 +1,5 @@
 ---
-description: "Multi-LLM peer review — send plans, ideas, or code to GPT (via OpenAI Codex CLI) and Gemini (via Gemini CLI) for structured peer review with cross-examination, then cherry-pick feedback. Decision Packet v2 with tiered output (Ship Blocker / Before Next Sprint / Backlog), dependency arrows, effort estimates, conflict flags, and JSON export. Tie-breaker model resolves HIGH CONFIDENCE deadlocks. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, help, and history modes. Supports parallel multi-mode dispatch (--modes redteam,deploy,perf) with collision detection. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, or mentions peer review, brainstorm, or multi-LLM feedback. Supports --rounds N, --verbose, --quiet, --gpt-model, --gemini-model, --steelman, --iterate, --json, and --modes flags. Falls back to GitHub Copilot CLI if Codex CLI is unavailable."
+description: "Multi-LLM peer review — send plans, ideas, or code to GPT (via OpenAI Codex CLI) and Gemini (via Gemini CLI) for structured peer review with cross-examination, then cherry-pick feedback. Decision Packet v2 with tiered output (Ship Blocker / Before Next Sprint / Backlog), dependency arrows, effort estimates, conflict flags, confidence scores, and JSON export with formal schema validation. Tie-breaker model resolves HIGH CONFIDENCE deadlocks. Supports review, idea, redteam, debate, premortem, advocate, refactor, deploy, api, perf, diff, quick, gate, delegate, help, history, status, and result modes. Supports parallel multi-mode dispatch (--modes redteam,deploy,perf) with collision detection. Review gate mode validates Claude's own output via GPT/Gemini before proceeding. Delegate mode hands off implementation tasks to external models with write permissions. Background execution (--background) for async reviews with job management (status/result). Session resumability (--resume) for continuing prior reviews across turns. Use this skill whenever the user wants a second opinion from other AI models, wants to brainstorm with multiple perspectives, needs adversarial analysis, wants to stress-test a plan, review a code diff, get deployment readiness feedback, API design review, performance analysis, validate Claude's output, delegate coding tasks, or mentions peer review, brainstorm, or multi-LLM feedback. Supports --rounds N, --verbose, --quiet, --gpt-model, --gemini-model, --steelman, --iterate, --json, --modes, --effort, --background, and --resume flags. Model aliases (spark, mini, flash, pro) for quick model selection. Falls back to GitHub Copilot CLI if Codex CLI is unavailable."
 ---
 
 # /peer-review — Multi-LLM Peer Review & Brainstorm
@@ -23,6 +23,24 @@ TIMEOUT_SOFT: 120      # seconds — aspirational per-call limit (no macOS `time
 TIMEOUT_HARD: 180      # seconds — Bash tool timeout, actual hard cutoff. If a call approaches TIMEOUT_HARD, partial output may be captured
 MAX_CROSSEXAM_CHARS: 12000  # truncate peer output before feeding into cross-exam to prevent token explosion
 MAX_TOTAL_PROMPT_CHARS: 40000  # hard ceiling per dispatch — budget original input + file context + own prior + peer response
+DEFAULT_EFFORT: ""     # reasoning effort; empty = model default. Values: low, medium, high, xhigh
+JOB_DIR: "${TMPDIR:-/tmp}/peer-review-jobs"  # persistent job directory for background execution
+```
+
+### Model Aliases
+
+Shorthand aliases for common model configurations. Use with `--gpt-model` or `--gemini-model` flags.
+
+```
+GPT_ALIASES:
+  spark: gpt-5.3-codex-spark     # lightweight, fast, cheap — good for quick mode and tie-breakers
+  mini: gpt-5.4-mini             # balanced cost/quality — good for standard reviews
+  full: gpt-5.4                  # full model — default, best quality
+
+GEMINI_ALIASES:
+  flash: gemini-2.5-flash        # lightweight, fast — good for quick mode
+  pro: gemini-2.5-pro            # previous generation pro
+  full: gemini-3.1-pro-preview   # full model — default, best quality
 ```
 
 The `--gpt-model` and `--gemini-model` per-invocation flags override the pinned values for that invocation. To see available models for GPT via Codex, test with `echo "hello" | codex exec -s read-only -m <name> -`. For GPT via Copilot (fallback), test with `copilot -s --no-ask-user --model <name> -p "hello"`. For Gemini, test with `gemini -p "hello" --model <name> --approval-mode plan --output-format text`. Set `ROUNDS` higher (3-4) for complex architectural decisions where you want thorough back-and-forth deliberation. Use 1 for quick feedback without cross-examination. `MAX_TOTAL_PROMPT_CHARS` prevents prompt blowouts at 3+ rounds — before every dispatch, sum the character lengths of all sections being sent and truncate the largest non-essential section if the total exceeds the budget.
@@ -47,6 +65,10 @@ The `--gpt-model` and `--gemini-model` per-invocation flags override the pinned 
 | `/peer-review deploy <rollout-plan>`   | Review deployment/rollout plans                               | ROUNDS (2)     |
 | `/peer-review api <api-design>`        | Review API designs: consistency, evolution, client experience | ROUNDS (2)     |
 | `/peer-review perf <code-or-plan>`     | Performance review: bottlenecks, scaling, capacity            | ROUNDS (2)     |
+| `/peer-review gate`                    | Review gate: review Claude's own output before showing it     | 1 (always)     |
+| `/peer-review delegate <task>`         | Delegate implementation to GPT/Gemini with write permissions  | 1 (always)     |
+| `/peer-review status`                  | Show active and recent background peer review jobs            | N/A            |
+| `/peer-review result [job-id]`         | Retrieve completed background review results                 | N/A            |
 
 **Per-invocation rounds override:** Any multi-round mode accepts `--rounds N` to override the default ROUNDS config for that invocation. Example: `/peer-review debate --rounds 3 Should we rewrite the auth layer?`. Quick and single-target modes always use 1 round regardless of `--rounds`.
 
@@ -200,6 +222,11 @@ Extract the subcommand and user's prompt. Parse and remove any flags before disp
 - **`--modes <mode1,mode2,...>`**: Run multiple modes in parallel on the same prompt. Comma-separated, cap at 4 modes. Each mode runs its own full review pipeline (Steps 2-5) independently. Results are merged into a unified Decision Packet with cross-mode collision detection. See Step 8 for details. Incompatible with quick/single-target modes and `--iterate`.
 - **`--modes preset:release`**: Shorthand for `--modes redteam,deploy,perf`. Additional presets: `preset:security` = `redteam,api`, `preset:quality` = `review,refactor,perf`.
 - **`--json-redacted`**: When used with `--json`, automatically redact detected secrets/credential patterns in the JSON export instead of prompting. See Step 5.1 for details.
+- **`--effort <level>`**: Control reasoning effort for dispatched models. Values: `low`, `medium`, `high`, `xhigh`. Maps to `--reasoning-effort <level>` for Codex CLI and `--thinking-budget-tokens` for Gemini CLI (low=1024, medium=4096, high=8192, xhigh=16384). If not set, uses `DEFAULT_EFFORT` config (empty = model default). Invalid values are rejected with a warning and fall back to model default.
+- **`--background`**: Dispatch the review asynchronously. Write results to `JOB_DIR` and return immediately with a job ID. Use `/peer-review status` to check progress and `/peer-review result [job-id]` to retrieve completed results. Incompatible with `--iterate` (iteration requires interactive user input). Quick and single-target modes default to foreground even with `--background`.
+- **`--resume [job-id]`**: Resume a previous background review session. If `job-id` is omitted, resume the most recent job for this repository. Loads the prior review's context and continues from where it left off (e.g., cherry-pick workflow if the review completed but cherry-pick was not done).
+
+**Model alias resolution:** Before validating model names, resolve aliases. If `--gpt-model` value matches a key in `GPT_ALIASES`, replace it with the mapped model name. If `--gemini-model` value matches a key in `GEMINI_ALIASES`, replace it with the mapped model name. Unknown aliases are treated as literal model names (pass-through). Example: `--gpt-model spark` → `--gpt-model gpt-5.3-codex-spark`.
 
 Remove all parsed flags from the prompt text before building role-differentiated prompts.
 
@@ -293,10 +320,14 @@ If the user invokes `/peer-review help`, do NOT dispatch to any CLI. Instead, pr
 | `perf`             | Performance review                | `/peer-review perf Our search does full table scan...`         |
 | `diff`             | Review staged git changes         | `/peer-review diff`                                            |
 | `quick`            | Fast second opinion (1 round)     | `/peer-review quick Is this regex safe?`                       |
+| `gate`             | Review Claude's own output        | `/peer-review gate`                                            |
+| `delegate`         | Delegate coding task to GPT/Gemini| `/peer-review delegate Fix the auth bug from items 1, 3`       |
 
-**Options:** `--rounds N` (1-4), `--verbose`, `--quiet`, `--gpt-model <model>`, `--gemini-model <model>`, `--branch [name]` (diff only), `--steelman` (steelman cross-exam), `--iterate [N]` (convergence loop, requires file context), `--json` (emit Decision Packet as JSON), `--json-redacted` (auto-redact secrets in JSON export), `--modes <m1,m2,...>` (parallel multi-mode, cap 4)
+**Options:** `--rounds N` (1-4), `--verbose`, `--quiet`, `--gpt-model <model>`, `--gemini-model <model>`, `--branch [name]` (diff only), `--steelman` (steelman cross-exam), `--iterate [N]` (convergence loop, requires file context), `--json` (emit Decision Packet as JSON), `--json-redacted` (auto-redact secrets in JSON export), `--modes <m1,m2,...>` (parallel multi-mode, cap 4), `--effort <level>` (low/medium/high/xhigh — reasoning effort), `--background` (async dispatch), `--resume [job-id]` (resume prior session)
 **Presets:** `--modes preset:release` (redteam,deploy,perf), `preset:security` (redteam,api), `preset:quality` (review,refactor,perf)
+**Model aliases:** `--gpt-model spark` (fast/cheap), `--gpt-model mini` (balanced), `--gemini-model flash` (fast), `--gemini-model pro` (previous gen)
 **Single-target:** `/peer-review gpt <prompt>`, `/peer-review gemini <prompt>`
+**Job management:** `/peer-review status` (list background jobs), `/peer-review result [job-id]` (retrieve results)
 **Other:** `/peer-review history` (show recent reviews)
 
 ### Decision Packet v2
@@ -391,7 +422,7 @@ trap 'rm -f "$PROMPT_FILE" "$STDERR_FILE"' EXIT
 python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
 <full GPT prompt here>
 PEER_REVIEW_EOF_<8_RANDOM_HEX>
-cat "$PROMPT_FILE" | codex exec -s read-only -m <RESOLVED_GPT_MODEL> - 2>"$STDERR_FILE"; EXIT_CODE=$?
+cat "$PROMPT_FILE" | codex exec -s read-only -m <RESOLVED_GPT_MODEL> <EFFORT_FLAG_GPT> - 2>"$STDERR_FILE"; EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   echo "GPT_FAILED: exit code $EXIT_CODE"
   echo "GPT_STDERR: $(cat "$STDERR_FILE")"
@@ -450,6 +481,8 @@ trap - EXIT
 - **Copilot CLI** (fallback) runs with `--no-ask-user` to prevent interactive prompts. The `-s` flag ensures only the response is output (no stats/metadata). Prompts are piped via stdin (`< "$PROMPT_FILE"`) to prevent prompt content from appearing in process listings (`ps`) and to avoid the `ARG_MAX` limit
 - **Gemini CLI** runs with `--approval-mode plan` to prevent agentic tool use (read-only mode) and `--output-format text` for clean output. Prompts are passed via `-p "$ESCAPED_PROMPT"` where `ESCAPED_PROMPT` is the temp file content with `\`, `"`, `$`, and `` ` `` escaped for safe double-quote expansion. **Tradeoff:** this still expands the prompt into argv, making it visible in `ps` output and subject to `ARG_MAX` limits. This is a known limitation of the Gemini CLI — there is no stdin-only mode. The escaping prevents shell injection from prompt content containing quotes or command substitution, and the temp file's `chmod 600` and short lifetime mitigate the exposure window
 - **Stderr is captured to a temp file** (not discarded) so failure diagnostics are available. On success, the stderr file is cleaned up silently. On failure, stderr content is reported alongside the exit code
+
+**Effort flag resolution:** Replace `<EFFORT_FLAG_GPT>` with the resolved effort flag for GPT dispatch. If `--effort` was set or `DEFAULT_EFFORT` is non-empty, use `--reasoning-effort <level>` for Codex CLI or `--effort <level>` for Copilot CLI. If effort is unset/empty, replace with nothing (empty string — omit the flag entirely). For Gemini dispatch, if effort is set, append `--thinking-budget-tokens <N>` where N maps from: low=1024, medium=4096, high=8192, xhigh=16384. If effort is unset, omit the flag.
 
 **Timeout contract:** Do NOT use the `timeout` command — it doesn't exist on macOS. `TIMEOUT_SOFT` (120s) is informational — no enforcement mechanism on macOS. `TIMEOUT_HARD` (180s) is enforced by the Bash tool's own timeout (set to 180000ms). If a call approaches `TIMEOUT_HARD`, partial output may be captured. If the Bash tool times out, report: "{Model} timed out after {TIMEOUT_HARD} seconds. This usually means the model is overloaded or the prompt is too large. You can retry with `/peer-review quick` for a shorter exchange, or try again later."
 
@@ -759,7 +792,7 @@ Place each numbered item from the Decision Packet into the appropriate quadrant.
 
 #### Step 5.1 — JSON Export (if `--json` is set)
 
-After presenting the normal Decision Packet, emit a fenced JSON block containing all items in machine-readable format. Also write to a temp file so the user can pipe it elsewhere.
+After presenting the normal Decision Packet, emit a fenced JSON block containing all items in machine-readable format. Also write to a temp file so the user can pipe it elsewhere. The JSON output MUST conform to the schema defined in `schemas/decision-packet.schema.json`. Key additions: each item includes a `confidence_score` (0.0-1.0 numeric) alongside the existing `confidence` label (HIGH/MEDIUM/LOW). Score mapping: HIGH=0.8-1.0, MEDIUM=0.4-0.79, LOW=0.0-0.39. Consensus items start at 0.9. Cross-exam endorsement adds +0.1 (capped at 1.0), rebuttal subtracts -0.2 (floored at 0.0), silence is neutral. Items may optionally include `file`, `line_start`, `line_end`, and `recommendation` fields when the model output references specific code locations.
 
 ```json
 {
@@ -784,6 +817,7 @@ After presenting the normal Decision Packet, emit a fenced JSON block containing
       "effort": "XS|S|M|L|XL",
       "source": "gpt|gemini|consensus",
       "confidence": "HIGH|MEDIUM|LOW",
+      "confidence_score": 0.0,
       "depends_on": [],
       "conflicts_with": [],
       "category": "Security & Safety|Architecture & Design|..."
@@ -1136,6 +1170,222 @@ REVIEW_LOG[]:
 
 </details>
 ```
+
+### Step 10 — Review Gate Mode (if mode is `gate`)
+
+The review gate is a proactive quality check that reviews Claude's own output before showing it to the user. Inspired by OpenAI's Codex plugin stop-gate pattern, this mode dispatches Claude's most recent response to GPT and Gemini for a correctness review.
+
+**When to use:** The user invokes `/peer-review gate` after Claude has produced a response they want validated. Unlike a stop hook (which requires plugin architecture), this mode works within the skill framework by reviewing the last assistant turn in the conversation.
+
+**Execution:**
+
+1. **Capture context** — Extract the most recent assistant turn from the conversation (Claude's last response). If no prior assistant turn exists, abort with: "No previous Claude response to review. Use `/peer-review gate` after Claude has produced output you want validated."
+
+2. **Build gate prompts** — Send Claude's output to both models with gate-specific prompts:
+
+   - **GPT prompt:** "You are a code review gatekeeper. The following is an AI assistant's response to a user request. Review it for: (1) correctness — are the code changes, commands, or suggestions technically correct, (2) completeness — does it address all parts of the user's request, (3) safety — could any suggestion cause data loss, security vulnerabilities, or breaking changes, (4) hallucinations — are there references to APIs, functions, or patterns that don't exist. For each issue found, state: the specific problem, severity [critical/high/medium/low], and what the correct answer should be. If the response is correct, say 'ALLOW: No issues found.' If issues exist, say 'BLOCK: {N} issues found' followed by the list."
+
+   - **Gemini prompt:** "You are a strategic review gatekeeper. The following is an AI assistant's response to a user request. Review it for: (1) architectural soundness — does the approach make sense for the broader system, (2) missed alternatives — are there better approaches the assistant didn't consider, (3) unintended consequences — could the suggested changes cause problems elsewhere in the codebase, (4) over-engineering — is the solution unnecessarily complex for the problem. For each concern, state: the specific issue, severity [critical/high/medium/low], and the recommended alternative. If the response is sound, say 'ALLOW: No concerns.' If concerns exist, say 'BLOCK: {N} concerns found' followed by the list."
+
+3. **Dispatch** — Use the same Step 2 bash templates (single round, no cross-examination). Gate mode always uses 1 round.
+
+4. **Parse verdict** — Check each model's output for `ALLOW:` or `BLOCK:` at the start:
+   - **Both ALLOW** → "Gate passed. Both GPT and Gemini approved Claude's response."
+   - **One BLOCK** → "Gate flagged by {model}. {N} issues found:" followed by the issues. Present as a mini Decision Packet (no tiers — just a flat list with severity).
+   - **Both BLOCK** → "Gate blocked. Both models found issues:" followed by merged issues.
+
+5. **Present results:**
+
+```markdown
+## Review Gate — Claude's Last Response
+
+### Verdict: {PASSED | FLAGGED | BLOCKED}
+
+**GPT (correctness checker):** {ALLOW | BLOCK: N issues}
+**Gemini (architecture checker):** {ALLOW | BLOCK: N concerns}
+
+### Issues Found (if any)
+
+| # | Issue | Severity | Source | Recommendation |
+|---|-------|----------|--------|----------------|
+| 1 | {issue} | {sev} | GPT | {fix} |
+| 2 | {concern} | {sev} | Gemini | {alternative} |
+
+**Action:** Review the flagged items above. If any are valid, ask Claude to revise its response before proceeding.
+```
+
+### Step 11 — Task Delegation Mode (if mode is `delegate`)
+
+The delegate mode sends implementation tasks to GPT and/or Gemini with write-capable permissions. Unlike review modes (which are read-only), delegation allows the external models to generate patches, write code, and propose concrete implementations.
+
+**When to use:** After a review identifies issues, or when the user wants to hand off a coding task to GPT/Gemini for a second implementation attempt.
+
+**Safety constraints:**
+- Delegated output is NEVER auto-applied — Claude presents the generated code/patches for user review
+- All generated patches are shown as diffs before the user decides to apply
+- File deletions, renames, and schema changes require explicit user confirmation
+- Delegation is limited to the files referenced in the prompt or the most recent review
+
+**Execution:**
+
+1. **Parse task** — Extract the task description from the user's prompt. If the prompt references accepted items from a prior review (e.g., "delegate items 1, 3, 5"), look up those items from the most recent review's Decision Packet.
+
+2. **Build delegation prompts:**
+
+   - **GPT prompt:** "You are a senior engineer implementing a fix. Task: {task_description}. Generate the minimal, correct code changes needed. For each change, provide: (1) the file path, (2) the exact code to replace (with surrounding context for unambiguous matching), (3) the replacement code. Use unified diff format. Do not include unrelated changes, refactoring, or style fixes. Focus solely on the requested task."
+
+   - **Gemini prompt:** "You are a senior engineer implementing a fix with an architectural perspective. Task: {task_description}. Generate the code changes needed, considering: (1) consistency with the existing codebase patterns, (2) whether the fix addresses the root cause or just the symptom, (3) any related changes needed in other files. Use unified diff format. Include brief rationale for each change."
+
+3. **Dispatch** — Use modified bash templates with write-capable sandbox:
+   - **Codex CLI:** Replace `-s read-only` with `-s write` to allow the model to generate file changes
+   - **Gemini CLI:** Replace `--approval-mode plan` with `--approval-mode full` for write access
+   - **Copilot CLI (fallback):** Same flags as standard dispatch (Copilot has no sandbox modes)
+
+4. **Present results:**
+
+```markdown
+## Delegation Results — "{task title}"
+
+### GPT's Implementation
+
+{GPT's generated changes in diff format}
+
+### Gemini's Implementation
+
+{Gemini's generated changes in diff format}
+
+### Comparison
+
+| Aspect | GPT | Gemini |
+|--------|-----|--------|
+| Files modified | {list} | {list} |
+| Lines changed | {N} | {N} |
+| Approach | {brief summary} | {brief summary} |
+
+**Which implementation would you like to apply?**
+
+- **GPT's version** — Apply GPT's changes
+- **Gemini's version** — Apply Gemini's changes
+- **Merge** — I'll help you combine the best parts of both
+- **Neither** — Discard both and implement manually
+```
+
+5. **Apply** — If the user chooses an implementation, apply the changes using Claude's edit tools. Show the final diff and offer to run validation (same syntax checks from Step 7's VALIDATE FIXES).
+
+### Step 12 — Background Execution (if `--background` is set)
+
+Background execution dispatches reviews asynchronously, writes results to persistent temp files, and returns immediately with a job ID.
+
+**Job directory:** Create `JOB_DIR` if it doesn't exist:
+
+```bash
+mkdir -p "${TMPDIR:-/tmp}/peer-review-jobs"
+chmod 700 "${TMPDIR:-/tmp}/peer-review-jobs"
+```
+
+**Execution flow:**
+
+1. **Generate job ID** — `JOB_$(date +%Y%m%d_%H%M%S)_$(python3 -c 'import secrets; print(secrets.token_hex(4))')`
+
+2. **Write job manifest** — Create `$JOB_DIR/$JOB_ID.json`:
+
+```json
+{
+  "id": "{JOB_ID}",
+  "status": "running",
+  "mode": "{mode}",
+  "prompt_preview": "{first 200 chars of prompt}",
+  "models": { "gpt": "{GPT_MODEL}", "gemini": "{GEMINI_MODEL}" },
+  "started_at": "{ISO 8601}",
+  "repo": "{git remote URL or directory name}",
+  "flags": "{resolved flags}",
+  "effort": "{effort level or empty}"
+}
+```
+
+3. **Dispatch** — Run the review in a background subshell. Write stdout to `$JOB_DIR/$JOB_ID.stdout`, stderr to `$JOB_DIR/$JOB_ID.stderr`. On completion, update the manifest's `status` to `completed` or `failed` and add `completed_at` timestamp.
+
+4. **Return immediately:**
+
+```markdown
+Background review started.
+
+**Job ID:** `{JOB_ID}`
+**Mode:** {mode}
+**Models:** GPT: {GPT_MODEL}, Gemini: {GEMINI_MODEL}
+
+Check progress: `/peer-review status`
+Get results: `/peer-review result {JOB_ID}`
+```
+
+**`/peer-review status` mode:**
+
+List all jobs in `JOB_DIR` for the current repository. Present as a table:
+
+```markdown
+## Peer Review Jobs
+
+| Job ID | Mode | Status | Started | Duration | Prompt Preview |
+|--------|------|--------|---------|----------|----------------|
+| {id} | {mode} | running/completed/failed | {time} | {elapsed} | {first 80 chars} |
+
+**Actions:** `/peer-review result {job-id}` to view results, or delete old jobs with `/peer-review cancel {job-id}`
+```
+
+Filter by current repository: match `repo` field in job manifests against `git remote get-url origin 2>/dev/null || basename "$(pwd)"`. Show only jobs from the current repo.
+
+**`/peer-review result [job-id]` mode:**
+
+If no job-id given, use the most recent completed job for this repo. Read `$JOB_DIR/$JOB_ID.stdout` and present the review results. If the job is still running, report status and estimated wait. If the job failed, show stderr.
+
+After presenting results, offer the standard cherry-pick workflow (Step 6).
+
+### Step 13 — Session Resumability (if `--resume` is set)
+
+Session resumability allows continuing a prior review's context across conversation turns.
+
+**How it works:**
+
+1. **Save session** — After each review completes (Step 5), write a session state file to `$JOB_DIR/session_{SESSION_ID}.json`:
+
+```json
+{
+  "session_id": "{SESSION_ID}",
+  "mode": "{mode}",
+  "prompt": "{full original prompt}",
+  "flags": "{resolved flags}",
+  "gpt_output": "{GPT's final round output}",
+  "gemini_output": "{Gemini's final round output}",
+  "rounds_completed": {N},
+  "decision_packet": { ... },
+  "cherry_pick_state": "pending|partial|complete",
+  "accepted_items": [],
+  "timestamp": "{ISO 8601}",
+  "repo": "{git remote URL or directory name}"
+}
+```
+
+2. **Resume** — When `--resume` is invoked:
+   - If `--resume {job-id}` is given, load that specific session
+   - If `--resume` is given without an ID, load the most recent session for this repo
+   - If no session exists, warn: "No previous session found to resume. Run a review first."
+
+3. **Resume actions** — After loading the session, offer:
+
+```markdown
+## Resuming Session: {mode} — "{title}"
+
+**Original review:** {date} | {rounds_completed} rounds | {item_count} items
+
+**What would you like to do?**
+
+- **Continue cherry-pick** — Resume the accept/discard workflow from where you left off
+- **Add rounds** — Run additional cross-examination rounds (current: {N})
+- **Re-review** — Re-run the review with the same prompt but fresh model calls
+- **New prompt** — Use the same context but change the review focus
+```
+
+4. **For "Add rounds"** — Load the prior round outputs and dispatch a new cross-examination round (Step 4) using the saved GPT/Gemini outputs as the starting point. This is cost-effective: no need to re-run Round 1.
 
 ## Notes
 
