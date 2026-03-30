@@ -339,7 +339,7 @@ If the user invokes `/peer-review history`, do NOT dispatch to any CLI. Scan bac
 | 1   | review  | "Webhook notification system" | 12 items | Cherry-picked 1, 3, 5 |
 | 2   | redteam | "Bug bounty triage pipeline"  | 8 items  | Accepted all          |
 
-To re-run a review on the same topic, say "re-review #N" and the skill will use the same mode and prompt.
+To re-run a review on the same topic, say "re-review #N" — the skill will use the stored mode, prompt text, and flags from the log entry. If the original `prompt_text` was truncated (>500 chars), warn: "Original prompt was truncated in the log — re-review uses the first 500 characters. For full fidelity, re-paste the original prompt."
 ```
 
 If no previous reviews exist, say "No peer reviews in this session yet."
@@ -946,11 +946,15 @@ Holding items {list} for your review.
 
 4. **APPLY FIXES** — Apply only validated/accepted items to the file context using Claude's edit capabilities. Show a brief diff summary of changes made.
 
-5. **VERIFY (convergence check)** — Re-read the modified file. Track items across iterations:
-   - **[RESOLVED]** — items from prior iterations that no longer appear
-   - **[PERSISTENT]** — items that survive across iterations (load-bearing issues)
-   - **[NEW]** — items that emerged from fixes (highest signal — fixing exposed them)
-   - **[REGRESSION]** — item count increased (warn user, consider reverting)
+5. **VERIFY (convergence check)** — Re-read the modified file. Generate a stable identity hash for each item: `sha256({file_path}:{concern_type}:{first_10_words})[:12]`. Use these hashes to track items across iterations:
+   - **[RESOLVED]** — hash from a prior iteration no longer appears
+   - **[PERSISTENT]** — same hash survives across iterations (load-bearing issues)
+   - **[NEW]** — hash not seen in any prior iteration (highest signal — fixing exposed them)
+   - **[REGRESSION]** — item count increased vs prior iteration (warn user, consider reverting)
+   - **[OSCILLATION]** — hash was RESOLVED in iteration N but reappears in iteration N+2 (item toggling between states — likely an unstable fix)
+   - **[SEMANTIC REGRESSION]** — a RESOLVED item reappears with different wording but the same hash prefix (first 8 chars match). The underlying concern resurfaced despite surface-level rewording
+
+   Present the hash prefix (first 8 chars) in verbose mode so the user can trace item identity across iterations.
 
 6. **DECIDE: CONTINUE OR STOP**
    - STOP if: Tier 1 is empty — no Ship Blockers remain (convergence achieved)
@@ -1048,7 +1052,9 @@ When `--modes` is active, the skill runs multiple review modes simultaneously on
 
 #### Collisions
 
-Items from different modes that address the same concern but recommend conflicting actions:
+Before comparing items across modes, normalize each into a canonical form: `{artifact (file or component), concern_type (security|perf|design|correctness|ops|ux), action_verb, target}`. Only flag collisions when `artifact` AND `concern_type` match but `action_verb` contradicts (e.g., "enable X" vs "disable X", "add Y" vs "remove Y"). If normalization fails (item is too abstract to extract artifact/concern_type), keep items separate and tag `**[MANUAL MERGE REQUIRED]**` in the unified Decision Packet.
+
+Items from different modes that address the same concern but recommend conflicting actions (after normalization):
 
 | Collision | Mode A Item                          | Mode B Item                                       | Conflict                                | Resolution                            |
 | --------- | ------------------------------------ | ------------------------------------------------- | --------------------------------------- | ------------------------------------- |
@@ -1097,6 +1103,9 @@ REVIEW_LOG[]:
   tier1_count: {Ship Blockers}
   tier2_count: {Before Next Sprint}
   tier3_count: {Backlog}
+  prompt_text: {first 500 characters of the user's prompt}
+  flags: {resolved flag string, e.g., "--rounds 3 --steelman --json"}
+  file_refs: []        # list of referenced file paths from context enrichment
   accepted_items: []   # populated in Phase 2
   discarded_items: []  # populated in Phase 2
 ```
