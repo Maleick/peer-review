@@ -102,6 +102,18 @@
       "prompt": "/peer-review --modes preset:release We're deploying a new authentication service that replaces our legacy OAuth2 provider. The service handles token issuance, refresh, revocation, and JWKS endpoint. We're rolling out via blue-green deployment with a 2-hour canary window. Rate limiting is 500 auth requests per minute per tenant. The migration plan includes a 1-week dual-write period where both old and new services issue tokens.",
       "expected_output": "Should run redteam, deploy, and perf modes in parallel on the same prompt. Each mode should produce its own full review with Decision Packet. Should include a Cross-Mode Analysis section with collisions (conflicting recommendations between modes), reinforcements (same concern flagged by multiple modes), and coverage gaps. Should produce a Unified Decision Packet merging all mode items with source mode tags. Should display expected CLI call count before dispatch.",
       "files": []
+    },
+    {
+      "id": 17,
+      "prompt": "/peer-review quick We want to add a circuit breaker to our payment gateway client. When the gateway returns 5 consecutive 5xx errors, the circuit opens for 30 seconds, during which all calls return a cached fallback response. After 30 seconds, a single probe request tests recovery. If it succeeds, the circuit closes; if not, it stays open for another 30 seconds.",
+      "expected_output": "Should produce a single-round abbreviated review with lightweight GPT and Gemini feedback. Should still include a Decision Packet but with fewer items than a full review. Should complete faster than a standard review by skipping cross-examination rounds.",
+      "files": []
+    },
+    {
+      "id": 18,
+      "prompt": "/peer-review diff --- a/src/auth/token.ts\n+++ b/src/auth/token.ts\n@@ -12,7 +12,7 @@\n export function validateToken(token: string): boolean {\n-  const decoded = jwt.verify(token, process.env.JWT_SECRET);\n+  const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });\n   if (decoded.exp < Date.now() / 1000) {\n     return false;\n   }\n@@ -25,6 +25,8 @@\n export function issueToken(userId: string): string {\n   return jwt.sign(\n     { sub: userId, iat: Math.floor(Date.now() / 1000) },\n     process.env.JWT_SECRET,\n+    { algorithm: 'HS256', expiresIn: '1h' }\n   );\n }",
+      "expected_output": "Should produce a diff-focused review analyzing the specific code changes. GPT should identify implementation concerns (algorithm pinning correctness, expiry logic, secret management). Gemini should identify strategic concerns (token rotation strategy, key management lifecycle). Decision Packet should reference specific diff lines.",
+      "files": []
     }
   ]
 }

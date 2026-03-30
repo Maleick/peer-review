@@ -14,7 +14,7 @@ Update the mode list in the skill's `description` frontmatter so Claude Code kno
 
 ## Running Evals
 
-An eval framework lives in `peer-review-workspace/evals/`. Currently 9 evals (eval-0 through eval-8) covering all major modes plus adversarial injection resistance and meta self-review.
+An eval framework lives in `peer-review-workspace/evals/`. Currently 15 evals (eval-0 through eval-14) covering all major modes plus adversarial injection resistance and meta self-review, with eval-15 and eval-16 defined but pending execution. The canonical eval location is `peer-review-workspace/evals/iteration-1/`.
 
 ```bash
 cd peer-review-workspace/evals

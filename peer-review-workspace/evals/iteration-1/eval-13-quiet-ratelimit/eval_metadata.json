@@ -1,0 +1,11 @@
+{
+  "eval_id": 13,
+  "name": "quiet-ratelimit",
+  "mode": "review",
+  "flags": ["--quiet"],
+  "assertions": [
+    {"id": "has-decision-packet", "text": "Decision Packet with numbered items"},
+    {"id": "no-geminis-take", "text": "Gemini's Take section is NOT present"},
+    {"id": "no-cross-exam-section", "text": "Cross-Examination Highlights section is NOT present"}
+  ]
+}
