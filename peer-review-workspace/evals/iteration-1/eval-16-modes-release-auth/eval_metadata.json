@@ -1,0 +1,14 @@
+{
+  "eval_id": 16,
+  "name": "modes-release-auth",
+  "mode": "multi-mode",
+  "assertions": [
+    {"id": "has-multi-mode-output", "text": "Multi-mode or cross-mode section present"},
+    {"id": "has-collision-detection", "text": "Collision detection between mode outputs (collisions, reinforcements, coverage gaps)"},
+    {"id": "has-unified-packet", "text": "Unified Decision Packet merging all mode items"},
+    {"id": "has-mode-source-tags", "text": "Source mode tags on items (redteam #, deploy #, perf #)"},
+    {"id": "has-cost-awareness", "text": "Expected CLI call count displayed before dispatch"},
+    {"id": "has-decision-packet", "text": "Decision Packet with numbered items"},
+    {"id": "has-role-differentiation", "text": "GPT implementation vs Gemini strategic differentiation"}
+  ]
+}

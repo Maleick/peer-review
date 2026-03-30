@@ -1,0 +1,16 @@
+{
+  "eval_id": 15,
+  "name": "json-payment",
+  "mode": "review",
+  "assertions": [
+    {"id": "has-cross-examination", "text": "Cross-examination section present"},
+    {"id": "has-decision-packet", "text": "Decision Packet with numbered items"},
+    {"id": "has-role-differentiation", "text": "GPT implementation vs Gemini strategic differentiation"},
+    {"id": "has-tiered-output", "text": "Decision Packet v2 with Ship Blocker / Before Next Sprint / Backlog tiers"},
+    {"id": "has-effort-estimates", "text": "Effort estimates (~XS to ~XL) on decision items"},
+    {"id": "has-dependency-arrows", "text": "Dependency arrows between decision items"},
+    {"id": "has-conflict-flags", "text": "Conflict flags on contradictory items"},
+    {"id": "has-json-export", "text": "Valid JSON block with version 2.0 schema including items array"},
+    {"id": "has-json-file-written", "text": "JSON written to a temp file (peer-review-packet.json)"}
+  ]
+}
