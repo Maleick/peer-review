@@ -12,11 +12,12 @@ These values live at the top of the skill so they're easy to update when new mod
 
 ```
 GPT_MODEL: gpt-5.4                # pin to specific model; update when new models ship
-GEMINI_MODEL: gemini-3.1-pro-preview  # pin to specific model; Gemini is a different provider (Google) so no self-review bias concern
+GEMINI_MODEL: gemini-3.1-pro-preview  # primary Gemini model
+GEMINI_FALLBACK: gemini-2.5-pro   # fallback on 429/capacity errors — best available alternative
 GPT_CLI: codex                     # primary: "codex" (OpenAI Codex CLI), fallback: "copilot" (GitHub Copilot CLI)
 CODEX_FLAGS: exec -s read-only              # -s/--sandbox read-only prevents file modifications; prompts passed via positional arg
 COPILOT_FLAGS: -s --no-ask-user    # fallback GPT CLI flags (used only when GPT_CLI=copilot)
-GEMINI_FLAGS: -p --model <GEMINI_MODEL> --approval-mode plan --output-format text
+GEMINI_FLAGS: -p --model <RESOLVED_GEMINI_MODEL> --approval-mode plan --output-format text
 ROUNDS: 2              # cross-examination rounds (1-4); 1 = no cross-exam, 2 = default, 3-4 = deep deliberation
 TIMEOUT_SOFT: 120      # seconds — aspirational per-call limit (no macOS `timeout` command; informational only)
 TIMEOUT_HARD: 180      # seconds — Bash tool timeout, actual hard cutoff. If a call approaches TIMEOUT_HARD, partial output may be captured
@@ -132,9 +133,9 @@ If the user says yes, run `npm install -g @google/gemini-cli` and re-check.
 
 ### Step 0.1 — Model Validation
 
-Report the resolved models and CLI briefly: "Using GPT: {GPT_MODEL} via {GPT_CLI}, Gemini: {GEMINI_MODEL} via gemini CLI"
+Report the resolved models and CLI briefly: "Using GPT: {GPT_MODEL} via {GPT_CLI}, Gemini: {GEMINI_MODEL} via gemini CLI (fallback: {GEMINI_FALLBACK})"
 
-If a `--gpt-model` or `--gemini-model` override was given, use that instead of the pinned config value for this invocation. Validate the model name matches `[a-zA-Z0-9._-]+` — reject and warn on invalid names.
+If a `--gpt-model` or `--gemini-model` override was given, use that instead of the pinned config value for this invocation. Validate the model name matches `[a-zA-Z0-9._-]+` — reject and warn on invalid names. A `--gemini-model` override also disables auto-failover (the user explicitly chose a model).
 
 **Note:** Gemini is a different provider (Google) than the orchestrating Claude instance, so self-review bias is not a concern.
 
@@ -458,8 +459,8 @@ trap - EXIT
 If a CLI call fails:
 
 - Report the failure clearly with the error output
+- **Gemini auto-failover:** If Gemini fails with a 429/capacity error (`MODEL_CAPACITY_EXHAUSTED`, `rate limit`, `429`, `too many requests`, `quota`), automatically retry once with `GEMINI_FALLBACK` model (default: `gemini-2.5-pro`). Report: "Gemini {GEMINI_MODEL} capacity exhausted — failing over to {GEMINI_FALLBACK}." If the fallback also fails, continue with GPT only
 - Continue with whatever results were obtained from the other model
-- Do NOT retry automatically — let the user decide
 - If both fail, skip to the accept/discard step with just Claude's own perspective
 
 Common failures:
@@ -470,7 +471,7 @@ Common failures:
 - **Rate limiting** — look for `rate limit`, `429`, `too many requests`, or `quota` in stderr. If detected, report: "{Model} is rate-limited. Wait a few minutes before retrying, or continue with the other model's results."
 - **Codex-specific failures** — Check stderr for structured error messages. Common issues: expired OAuth session (run `codex login`), missing `OPENAI_API_KEY`, quota exceeded, model not available. If Codex fails and Copilot CLI is available, offer to retry with Copilot as fallback: "Codex CLI failed. Want me to retry with Copilot CLI?"
 - **Copilot-specific failures** — Auth error (run `gh auth login` or `copilot login`), subscription not active, model not available via Copilot
-- **Gemini-specific failures** — Gemini CLI uses distinct exit codes. Check stderr for structured error messages. Common issues: expired Google credentials (run `gemini auth`), quota exceeded, model not available in region
+- **Gemini-specific failures** — Gemini CLI uses distinct exit codes. Check stderr for structured error messages. Common issues: expired Google credentials (run `gemini auth`), quota exceeded, model not available in region. On 429/capacity errors, the auto-failover (see above) retries with `GEMINI_FALLBACK` before giving up
 - **Bash tool timeout** — the 180s Bash timeout was hit. See timeout guidance in Step 2
 
 ### Step 3.5 — Output Sanitization
