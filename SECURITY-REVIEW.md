@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The peer-review skill orchestrates multi-LLM peer review by dispatching prompts to external CLIs (GPT and Gemini via the GitHub Copilot CLI). The prior security hardening commit addressed several concerns. This review audited 25+ checks across 7 categories and found **7 findings** — 1 High, 2 Medium, 2 Low, 1 Info, and 1 Accepted risk. All actionable findings have been remediated.
+The peer-review skill orchestrates multi-LLM peer review by dispatching prompts to external CLIs (GPT via OpenAI Codex CLI or GitHub Copilot CLI fallback, and Gemini via Gemini CLI). The prior security hardening commit addressed several concerns. This review audited 25+ checks across 7 categories and found **7 findings** — 1 High, 2 Medium, 2 Low, 1 Info, and 1 Accepted risk. All actionable findings have been remediated.
 
 ---
 
@@ -30,13 +30,13 @@ The peer-review skill orchestrates multi-LLM peer review by dispatching prompts 
 **Impact:** Token explosion in rounds 3-4, potential context window exhaustion, injection-via-volume attacks.
 **Fix:** Replaced the vague paragraph with a mandatory 3-step procedure: measure length, truncate at boundary, append truncation notice. Added explicit "Never pass the untruncated output" instruction.
 
-### F3 — Copilot CLI Has No Sandbox Flags [MEDIUM] — DOCUMENTED
+### F3 — CLI Sandbox Coverage [MEDIUM] — PARTIALLY RESOLVED (v0.8.0)
 
 **Location:** SKILL.md (GPT and Gemini bash templates)
-**Issue:** The GitHub Copilot CLI has no equivalent to the former Codex sandbox flags (`-a never --sandbox read-only --ephemeral`). Both GPT and Gemini dispatch via `copilot -p ... -s --no-ask-user`, which runs with the user's ambient filesystem and network permissions. The `-s` (silent/streaming) and `--no-ask-user` flags control output behavior, not sandboxing.
-**Impact:** A prompt-injected instruction could potentially modify files or make network requests through the Copilot CLI.
-**Fix:** Documented limitation in Notes section. Provider routing now goes through GitHub Copilot infrastructure rather than direct OpenAI/Google APIs.
-**Security regression from v0.5.0:** The Codex CLI's sandbox provided meaningful isolation. The Copilot CLI migration removes this layer. Mitigations remain: heredoc randomization, randomized DATA marker framing, stdin-based prompt piping (no argv exposure), and privacy warnings.
+**Issue (v0.6.0-v0.7.0):** The GitHub Copilot CLI had no equivalent to the Codex sandbox flags. Both GPT and Gemini dispatch via `copilot -p ... -s --no-ask-user`, which ran with the user's ambient filesystem and network permissions.
+**Resolution (v0.8.0):** Codex CLI restored as primary GPT provider with `--sandbox read-only --ask-for-approval never` flags, providing meaningful file system isolation. Copilot CLI retained as fallback only (no sandbox). Gemini CLI uses `--approval-mode plan` (read-only mode).
+**Remaining risk:** When Copilot CLI fallback is active (Codex unavailable), GPT dispatch has no sandbox. Gemini's `--approval-mode plan` prevents agentic tool use but is not a true sandbox.
+**Mitigations:** heredoc randomization, randomized DATA marker framing, temp file security (chmod 600, trap cleanup), and privacy warnings.
 
 ### F4 — Temp Files Use /tmp Instead of $TMPDIR [LOW] — FIXED
 
@@ -75,13 +75,13 @@ The peer-review skill orchestrates multi-LLM peer review by dispatching prompts 
 | 1a | Python stdin pipe safety (no argv injection) | PASS |
 | 1c | `$(cat "$PROMPT_FILE")` command substitution (double-quoted, no re-expansion) | PASS |
 | 1d | No unquoted variable expansions in bash templates | PASS |
-| 1e | Copilot CLI flags (`--no-ask-user`, `-s`) used for non-interactive dispatch. **Note:** Copilot CLI has no sandbox equivalent to Codex's `-a never --sandbox read-only --ephemeral` — prompts execute with the user's ambient permissions. See F3. | PASS (flags present) |
+| 1e | Codex CLI flags (`--sandbox read-only`, `--ask-for-approval never`) used for sandboxed non-interactive dispatch. Copilot fallback uses `--no-ask-user`, `-s` (no sandbox — see F3). | PASS (flags present) |
 | 2a | DATA marker framing consistent across all rounds, randomized per-dispatch (v0.7.0) | PASS |
 | 2d | Cross-exam prompts include instruction-following resistance language | PASS |
 | 3a | `mktemp` provides atomic temp file creation (POSIX guarantee) | PASS |
 | 3b | `chmod 600` applied immediately after mktemp, before Python write | PASS |
 | 3c | `trap ... EXIT` covers SIGTERM/SIGINT on macOS zsh | PASS |
-| 4a | Copilot CLI dispatch flags (`-s --no-ask-user`) are the available non-interactive options. No sandbox equivalent exists (see F3). | PASS |
+| 4a | Codex CLI dispatch flags (`--sandbox read-only --ask-for-approval never`) provide sandboxed non-interactive dispatch. Copilot fallback uses `-s --no-ask-user` (see F3). | PASS |
 | 4c | `settings.local.json` scoped narrowly (only specific `wc` command + serena activation) | PASS |
 | 5a | Mode parsing — invalid modes handled gracefully | PASS |
 | 5b | Prompt size — stdin piping (`< "$PROMPT_FILE"`) eliminates ARG_MAX constraint (v0.7.0) | PASS |

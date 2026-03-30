@@ -45,7 +45,7 @@ Keep changes to `SKILL.md` minimal and focused. The skill file is the entire run
 
 The CLI invocation templates in SKILL.md contain several security measures that must be preserved:
 
-- **Copilot CLI flags** (`--no-ask-user`, `-s`) — ensures non-interactive dispatch. Note: unlike the former Codex CLI, Copilot CLI has no sandbox equivalent. See SECURITY-REVIEW.md F3.
+- **Codex CLI flags** (`--sandbox read-only`, `--ask-for-approval never`) — ensures non-interactive, sandboxed dispatch. Copilot CLI fallback uses `--no-ask-user`, `-s` (no sandbox equivalent — see SECURITY-REVIEW.md F3).
 - **Randomized heredoc delimiters** — the `PEER_REVIEW_EOF_<8_RANDOM_HEX>` pattern must generate fresh random hex on every invocation. This prevents user input from injecting the delimiter to escape the heredoc.
 - **Temp file cleanup** — every temp file must have a `trap` for cleanup on failure and explicit `rm -f` after use.
 - **`chmod 600`** on temp files — restricts read access to the current user.
