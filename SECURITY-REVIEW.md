@@ -1,8 +1,8 @@
 # Security Review — peer-review Skill
 
-**Date:** 2026-03-07
+**Date:** 2026-03-30
 **Reviewer:** Claude (Opus 4.6) via security audit
-**Scope:** All files in `/opt/peer-review/`, primary focus on SKILL.md
+**Scope:** All files in `/Users/maleick/Projects/peer-review/`, primary focus on SKILL.md
 **Baseline commit:** `7813459` (fix(security): harden SKILL.md against injection and privilege escalation)
 
 ---
@@ -70,28 +70,28 @@ The peer-review skill orchestrates multi-LLM peer review by dispatching prompts 
 
 ## Passed Checks
 
-| # | Check | Result |
-|---|-------|--------|
-| 1a | Python stdin pipe safety (no argv injection) | PASS |
-| 1c | `$(cat "$PROMPT_FILE")` command substitution (double-quoted, no re-expansion) | PASS |
-| 1d | No unquoted variable expansions in bash templates | PASS |
-| 1e | Codex CLI flags (`--sandbox read-only`, `--ask-for-approval never`) used for sandboxed non-interactive dispatch. Copilot fallback uses `--no-ask-user`, `-s` (no sandbox — see F3). | PASS (flags present) |
-| 2a | DATA marker framing consistent across all rounds, randomized per-dispatch (v0.7.0) | PASS |
-| 2d | Cross-exam prompts include instruction-following resistance language | PASS |
-| 3a | `mktemp` provides atomic temp file creation (POSIX guarantee) | PASS |
-| 3b | `chmod 600` applied immediately after mktemp, before Python write | PASS |
-| 3c | `trap ... EXIT` covers SIGTERM/SIGINT on macOS zsh | PASS |
-| 4a | Codex CLI dispatch flags (`--sandbox read-only --ask-for-approval never`) provide sandboxed non-interactive dispatch. Copilot fallback uses `-s --no-ask-user` (see F3). | PASS |
-| 4c | `settings.local.json` scoped narrowly (only specific `wc` command + serena activation) | PASS |
-| 5a | Mode parsing — invalid modes handled gracefully | PASS |
-| 5b | Prompt size — stdin piping (`< "$PROMPT_FILE"`) eliminates ARG_MAX constraint (v0.7.0) | PASS |
-| 5c | CLI error output — stderr captured to temp file for diagnostics; not discarded (v0.7.0) | PASS |
-| 6a | grade_all.py — path traversal: hardcoded eval names prevent injection | PASS |
-| 6b | grade_all.py — ReDoS: non-greedy quantifiers, no catastrophic backtracking | PASS |
-| 6c | grade_all.py — file writes to predictable grading.json paths (no user input in paths) | PASS |
-| 6d | grade_all.py — no dynamic code execution (json.load/dump and re only) | PASS |
-| 7b | No package managers (no npm/pip supply chain risk) | PASS |
-| 7c | No CI/CD or git hooks (no pipeline attack surface) | PASS |
+| #   | Check                                                                                                                                                                               | Result               |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| 1a  | Python stdin pipe safety (no argv injection)                                                                                                                                        | PASS                 |
+| 1c  | `$(cat "$PROMPT_FILE")` command substitution (double-quoted, no re-expansion)                                                                                                       | PASS                 |
+| 1d  | No unquoted variable expansions in bash templates                                                                                                                                   | PASS                 |
+| 1e  | Codex CLI flags (`--sandbox read-only`, `--ask-for-approval never`) used for sandboxed non-interactive dispatch. Copilot fallback uses `--no-ask-user`, `-s` (no sandbox — see F3). | PASS (flags present) |
+| 2a  | DATA marker framing consistent across all rounds, randomized per-dispatch (v0.7.0)                                                                                                  | PASS                 |
+| 2d  | Cross-exam prompts include instruction-following resistance language                                                                                                                | PASS                 |
+| 3a  | `mktemp` provides atomic temp file creation (POSIX guarantee)                                                                                                                       | PASS                 |
+| 3b  | `chmod 600` applied immediately after mktemp, before Python write                                                                                                                   | PASS                 |
+| 3c  | `trap ... EXIT` covers SIGTERM/SIGINT on macOS zsh                                                                                                                                  | PASS                 |
+| 4a  | Codex CLI dispatch flags (`--sandbox read-only --ask-for-approval never`) provide sandboxed non-interactive dispatch. Copilot fallback uses `-s --no-ask-user` (see F3).            | PASS                 |
+| 4c  | `settings.local.json` scoped narrowly (only specific `wc` command + serena activation)                                                                                              | PASS                 |
+| 5a  | Mode parsing — invalid modes handled gracefully                                                                                                                                     | PASS                 |
+| 5b  | Prompt size — stdin piping (`< "$PROMPT_FILE"`) eliminates ARG_MAX constraint (v0.7.0)                                                                                              | PASS                 |
+| 5c  | CLI error output — stderr captured to temp file for diagnostics; not discarded (v0.7.0)                                                                                             | PASS                 |
+| 6a  | grade_all.py — path traversal: hardcoded eval names prevent injection                                                                                                               | PASS                 |
+| 6b  | grade_all.py — ReDoS: non-greedy quantifiers, no catastrophic backtracking                                                                                                          | PASS                 |
+| 6c  | grade_all.py — file writes to predictable grading.json paths (no user input in paths)                                                                                               | PASS                 |
+| 6d  | grade_all.py — no dynamic code execution (json.load/dump and re only)                                                                                                               | PASS                 |
+| 7b  | No package managers (no npm/pip supply chain risk)                                                                                                                                  | PASS                 |
+| 7c  | No CI/CD or git hooks (no pipeline attack surface)                                                                                                                                  | PASS                 |
 
 ---
 
@@ -113,3 +113,15 @@ All changes are in `.claude/skills/peer-review/SKILL.md`:
 - `python3 peer-review-workspace/grade_all.py` runs successfully: 27/36 passed (same as baseline)
 - No functional regressions in skill instruction flow
 - `git diff HEAD` confirms only expected changes
+
+---
+
+## Addendum: Gemini Auto-Failover (v0.9.0)
+
+**Date:** 2026-03-30
+
+The Gemini dispatch path now includes automatic failover: when the primary model (`gemini-3.1-pro-preview`) returns a 429 or capacity error, the skill retries with the `GEMINI_FALLBACK` model (`gemini-2.5-pro`). Security implications:
+
+- **No new attack surface** — the failover uses the same Gemini CLI flags (`--approval-mode plan --output-format text`), temp file handling, and DATA marker framing as the primary path.
+- **Model trust boundary unchanged** — both primary and fallback models are Google Gemini endpoints dispatched through the same CLI. No additional provider or auth path is introduced.
+- **Logging** — failover events are logged in the review output so users are aware which model actually responded. This prevents confusion about which model's output is being cross-examined.

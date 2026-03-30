@@ -128,6 +128,7 @@ Edit the config block at the top of `.claude/skills/peer-review/SKILL.md`:
 ```
 GPT_MODEL: gpt-5.4                # update when new models ship
 GEMINI_MODEL: gemini-3.1-pro-preview  # update when new models ship
+GEMINI_FALLBACK: gemini-2.5-pro   # fallback on 429/capacity errors
 GPT_CLI: codex                     # "codex" (primary) or "copilot" (fallback)
 ROUNDS: 2                          # cross-examination rounds (1-4)
 MAX_TOTAL_PROMPT_CHARS: 40000      # hard ceiling per dispatch

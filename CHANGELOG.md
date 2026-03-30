@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] — 2026-03-30
+
+### Added
+
+- **Gemini auto-failover** — primary `gemini-3.1-pro-preview`, automatic fallback to `gemini-2.5-pro` on 429/capacity errors. New `GEMINI_FALLBACK` config value.
+- **Decision Packet v2** — tiered output (Ship Blocker / Before Next Sprint / Backlog), dependency arrows, effort estimates, and conflict flags
+- **Tie-breaker model** (`gpt-5.4-mini`) for resolving HIGH CONFIDENCE deadlocks between GPT and Gemini
+- **`--json-redacted` flag** — redacted JSON export that auto-strips detected secrets from output
+- **Convergence identity tracking** — persistent tracking of convergence patterns across review rounds
+- **Structured collision detection** — detects conflicting recommendations across modes
+- **History prompt storage** — review prompts stored for `/peer-review history` retrieval
+- **Multi-mode dispatch** (`--modes redteam,deploy,perf`) — run multiple review modes in parallel with cross-mode collision detection
+
 ## [0.8.0] — 2026-03-30
 
 ### Breaking
@@ -23,7 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Pre-flight checks now detect Codex CLI first, then Copilot CLI as fallback, then Gemini CLI
-- GPT dispatch template uses `codex exec -p "$(cat "$PROMPT_FILE")" --model <model> --sandbox read-only --ask-for-approval never`
+- GPT dispatch template uses `cat "$PROMPT_FILE" | codex exec -s read-only -m <model> -`
 - Copilot CLI dispatch template preserved as fallback (used when `GPT_CLI=copilot`)
 - Privacy notice updated: prompts go directly to OpenAI (via Codex) instead of through GitHub infrastructure
 
@@ -59,6 +72,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.5.0] — 2025-03-09
 
 ### Added
+
 - Confidence indicators on Decision Packet items: [HIGH CONFIDENCE], [MEDIUM], [LOW] based on cross-examination convergence
 - Priority Matrix (Impact x Effort quadrant table) after Decision Packet
 - Follow-up tracking: add TODOs in code, draft GitHub issues, or summarize as checklist
@@ -69,6 +83,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.4.0] — 2025-03-09
 
 ### Added
+
 - Four new review modes: `refactor`, `deploy`, `api`, `perf` — each with role-differentiated prompts
 - `diff` mode: reviews staged/unstaged git changes with full review treatment
 - `help` command: inline reference table of all modes and options
@@ -86,6 +101,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.3.0] — 2025-03-07
 
 ### Added
+
 - Codex sandbox mode (`-a never --sandbox read-only --ephemeral`) to prevent reviewer models from modifying the workspace
 - Randomized heredoc delimiters (`PEER_REVIEW_EOF_<8_RANDOM_HEX>`) to block delimiter injection attacks
 - Python one-liner for temp file writing — avoids all shell escaping issues with single quotes, backticks, and `$()`
@@ -99,6 +115,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.2.0] — 2025-03-07
 
 ### Added
+
 - Seven distinct modes: review (default), idea, redteam, debate, premortem, advocate, quick
 - Role-differentiated prompts — Codex gets implementation-focused personas, Gemini gets strategic/architectural personas
 - Multi-round cross-examination with configurable `ROUNDS` (1-4)
@@ -110,14 +127,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Advocate vs. Critic Summary section for advocate mode
 
 ### Changed
+
 - Renamed from "brainstorm" to "peer-review" (`/brainstorm` kept as legacy alias)
 
 ### Fixed
+
 - Eval pass rate improved from 50% to 100%
 
 ## [0.1.0] — 2025-03-07
 
 ### Added
+
 - Initial "brainstorm" skill with basic dispatch to Codex and Gemini CLIs
 - Simple prompt forwarding to both models
 - Basic result presentation

@@ -106,7 +106,7 @@ ASSERTION_CHECKS: dict[str, Checker] = {
     ),
     "has-role-differentiation": combined(
         keywords_present(["GPT"], 1),
-        keywords_present(["Claude"], 1),
+        keywords_present(["Gemini"], 1),
     ),
     "has-normal-structure": section_present(r"##\s*Peer Review"),
 
@@ -257,7 +257,7 @@ ASSERTION_CHECKS: dict[str, Checker] = {
     "has-verbose-prompts": keywords_present(
         ["prompt sent", "character", "chars", "prompt:", "dispatching"], 1
     ),
-    "no-claudes-take": keywords_absent(["Claude's Take"]),
+    "no-geminis-take": keywords_absent(["Gemini's Take"]),
     "no-cross-exam-section": keywords_absent(
         ["Cross-Examination Highlights", "Where they challenged"]
     ),
@@ -396,7 +396,10 @@ def grade_single(check_dir: Path, metadata: dict) -> dict:
 
     for a in assertions:
         aid = a["id"]
-        checker = ASSERTION_CHECKS.get(aid) or fallback_checker(a["text"])
+        checker = ASSERTION_CHECKS.get(aid)
+        if checker is None:
+            print(f"WARNING: unknown assertion ID '{aid}' — using fallback keyword check", file=sys.stderr)
+            checker = fallback_checker(a["text"])
         passed, detail = checker(text)
         result["assertions"].append({
             "id": aid,
