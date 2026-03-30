@@ -84,6 +84,10 @@ Legacy alias: `/brainstorm` maps to the same modes.
 --branch [name]           # for diff mode: compare against a branch (default: main)
 --steelman                # steelman cross-exam: models strengthen each other's arguments before critiquing
 --iterate [N]             # autoresearch loop: review → auto-fix → re-review → converge (default: 3 iterations)
+--json                    # emit machine-readable JSON export of all Decision Packet items
+--json-redacted           # like --json, but auto-redacts detected secrets in the output
+--modes <m1,m2,...>       # run multiple modes in parallel (cap: 4), e.g., --modes redteam,deploy,perf
+--allow-sensitive         # override block-by-default privacy gate for diff mode
 ```
 
 ### Steelman Mode (`--steelman`)
@@ -102,7 +106,20 @@ Iteration 2: 5 items (1 HIGH, 4 RESOLVED) → auto-apply 1 fix
 Iteration 3: 2 items (0 HIGH) → convergence achieved
 ```
 
-You can type `stop` at any iteration to halt, or `override` to switch to manual cherry-pick. Regressions (more items than before) trigger an automatic pause.
+Safety rails prevent runaway iteration: a **validation gate** syntax-checks each fix before applying (Python, JS/TS, Shell, JSON), **scope control** blocks deletions/renames/multi-file/schema changes without approval, and a **diff size guard** pauses on fixes exceeding 50 lines. Type `stop` at any iteration to halt, or `override` to switch to manual cherry-pick. Regressions (more items than before) trigger an automatic pause.
+
+### Multi-Mode (`--modes`)
+
+Run multiple review modes in parallel on the same prompt with cross-mode collision detection:
+
+```
+/peer-review --modes redteam,deploy,perf Our migration plan is to...
+
+# Presets available:
+#   preset:release  → redteam,deploy,perf
+#   preset:security → redteam,api
+#   preset:quality  → review,refactor,perf
+```
 
 ## Configuration
 
@@ -117,7 +134,7 @@ MAX_TOTAL_PROMPT_CHARS: 40000      # hard ceiling per dispatch
 MAX_CROSSEXAM_CHARS: 12000         # truncate peer output in cross-exam rounds
 ```
 
-**To see available models:** For Codex CLI: `codex exec -p "hello" --model <name> --sandbox read-only --ask-for-approval never`. For Gemini CLI: `gemini -p "hello" --model <name> --approval-mode plan --output-format text`
+**To see available models:** For Codex CLI: `echo "hello" | codex exec -s read-only -m <name> -`. For Gemini CLI: `gemini -p "hello" --model <name> --approval-mode plan --output-format text`
 
 ### Rounds
 
@@ -177,27 +194,28 @@ What would you like to do with this feedback?
 ## How It Works Under the Hood
 
 1. Claude verifies the Codex CLI and Gemini CLI are installed and authenticated (falls back to Copilot CLI for GPT if needed)
-2. Scans your prompt for sensitive data (API keys, credentials) and warns before sending
+2. Scans your prompt for sensitive data (API keys, JWT tokens, AWS keys, GitHub/Slack tokens, PEM keys, high-entropy strings, credentials) — blocks dispatch if found
 3. Builds role-differentiated prompts for each model
 4. Dispatches to both models **in parallel** via their respective CLIs
-5. Each cross-examination round includes the original task, the model's own prior response, and the peer's response — so models maintain context across rounds
-6. Synthesizes all rounds into a Decision Packet with confidence levels based on cross-exam convergence
-7. Presents the cherry-pick menu
+5. Sanitizes model output before reuse (cross-exam, TODOs, JSON export, iteration fixes)
+6. Each cross-examination round includes the original task, the model's own prior response, and the peer's response — so models maintain context across rounds
+7. Synthesizes all rounds into a Decision Packet with confidence levels based on cross-exam convergence
+8. Presents the cherry-pick menu
 
-**Security:** Prompts are written to temp files with restricted permissions, piped via stdin (never command-line args), and cleaned up after each call. Heredoc delimiters use cryptographically random suffixes to prevent injection. Cross-examination uses randomized DATA boundary markers.
+**Security:** Prompts are written to temp files with restricted permissions, piped via stdin (never command-line args), and cleaned up after each call. Heredoc delimiters use cryptographically random suffixes to prevent injection. Cross-examination uses randomized DATA boundary markers. Diff mode uses block-by-default privacy — sensitive diffs require `--allow-sensitive`. JSON exports are scanned for leaked secrets post-write.
 
 ## Troubleshooting
 
-| Problem                                         | Fix                                                                                      |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `PREFLIGHT_FAIL: No GPT CLI found`              | Install Codex CLI: `npm install -g @openai/codex`, then `codex login`                    |
-| `PREFLIGHT_FAIL: Gemini CLI not found`           | Install Gemini CLI: `npm install -g @google/gemini-cli`, then `gemini auth`              |
-| `PREFLIGHT_WARN: Codex CLI auth may not be configured` | Run `codex login` or set `OPENAI_API_KEY`                                          |
-| `GPT_FAILED` with exit code                     | Re-authenticate: `codex login`. If using Copilot fallback: `gh auth login`               |
-| `GEMINI_FAILED` with exit code                  | Re-authenticate: `gemini auth` or check `GEMINI_API_KEY`                                 |
-| Rate limited                                    | Wait a few minutes, or use `/peer-review quick` for a lighter call                       |
-| Timeout (no response after 3 min)               | Prompt may be too large. Split into smaller reviews.                                     |
-| Empty/partial output                            | Model returned a stub. Retry, or use single-target mode to isolate.                      |
+| Problem                                                | Fix                                                                         |
+| ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `PREFLIGHT_FAIL: No GPT CLI found`                     | Install Codex CLI: `npm install -g @openai/codex`, then `codex login`       |
+| `PREFLIGHT_FAIL: Gemini CLI not found`                 | Install Gemini CLI: `npm install -g @google/gemini-cli`, then `gemini auth` |
+| `PREFLIGHT_WARN: Codex CLI auth may not be configured` | Run `codex login` or set `OPENAI_API_KEY`                                   |
+| `GPT_FAILED` with exit code                            | Re-authenticate: `codex login`. If using Copilot fallback: `gh auth login`  |
+| `GEMINI_FAILED` with exit code                         | Re-authenticate: `gemini auth` or check `GEMINI_API_KEY`                    |
+| Rate limited                                           | Wait a few minutes, or use `/peer-review quick` for a lighter call          |
+| Timeout (no response after 3 min)                      | Prompt may be too large. Split into smaller reviews.                        |
+| Empty/partial output                                   | Model returned a stub. Retry, or use single-target mode to isolate.         |
 
 **Debug tip:** Test each model independently with `/peer-review gpt <prompt>` or `/peer-review gemini <prompt>`.
 
