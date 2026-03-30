@@ -896,15 +896,25 @@ Holding items {list} for your review.
 **Override?** Reply 'stop' to halt, 'override' to manually cherry-pick, or say 'continue' to proceed. If the user replies with 'continue', 'yes', 'proceed', 'y', or an empty/minimal response, treat as continue. Any other substantive reply should be treated as a pause — present the reply context and ask whether to continue or stop.
 ```
 
-3. **APPLY FIXES** — Apply accepted items to the file context using Claude's edit capabilities. Show a brief diff summary of changes made.
+3. **VALIDATE FIXES** — Before applying, run syntax validation on each target file based on its extension:
+   - `.py` → `python3 -c "import py_compile; py_compile.compile('{file}', doraise=True)"`
+   - `.js` → `node --check '{file}'`
+   - `.ts/.tsx` → `npx --yes tsc --noEmit '{file}'` (skip if tsconfig not found)
+   - `.sh/.bash` → `bash -n '{file}'`
+   - `.json` → `python3 -c "import json; json.load(open('{file}'))"`
+   - Other extensions → skip validation (no linter available)
 
-4. **VERIFY (convergence check)** — Re-read the modified file. Track items across iterations:
+   If validation fails for a fix, reject it: tag as `**[FIX REJECTED — validation failed: {error}]**`, log the error, and move to the next item. Do NOT apply rejected fixes. A single validation failure does not halt the iteration — other fixes proceed normally.
+
+4. **APPLY FIXES** — Apply only validated/accepted items to the file context using Claude's edit capabilities. Show a brief diff summary of changes made.
+
+5. **VERIFY (convergence check)** — Re-read the modified file. Track items across iterations:
    - **[RESOLVED]** — items from prior iterations that no longer appear
    - **[PERSISTENT]** — items that survive across iterations (load-bearing issues)
    - **[NEW]** — items that emerged from fixes (highest signal — fixing exposed them)
    - **[REGRESSION]** — item count increased (warn user, consider reverting)
 
-5. **DECIDE: CONTINUE OR STOP**
+6. **DECIDE: CONTINUE OR STOP**
    - STOP if: Tier 1 is empty — no Ship Blockers remain (convergence achieved)
    - STOP if: item count increased vs prior iteration (regression — auto-pause)
    - STOP if: max iterations reached
@@ -938,6 +948,13 @@ Holding items {list} for your review.
 - User can type `stop` at any auto-pick prompt to halt the loop
 - User can type `override` to switch to manual cherry-pick for that iteration
 - Regressions (item count increase) trigger an automatic pause with explanation
+- **Scope control:** Block auto-application for these change types — they require explicit user approval even in `--iterate` mode:
+  - File deletions or renames
+  - Changes spanning 3+ files in a single fix
+  - Schema changes (files matching `**/migrations/**`, `**/schema.*`, `**/schema/**`, `*.prisma`, `*.sql`)
+  - If a fix would modify files outside the original review scope
+    Present blocked items with: `**[SCOPE BLOCKED — {reason}]** Requires explicit approval.`
+- **Diff size guard:** If a single fix would change more than 50 lines (insertions + deletions), pause before applying. Show the full diff and ask: "This fix modifies {N} lines. Apply, skip, or show details?" Do not auto-apply large diffs — they carry higher risk of unintended side effects
 - **Diff mode iteration:** If file context came from `--iterate diff`, after applying fixes, re-run the same `git diff` command from Step 1 to capture the updated diff as context for the next iteration. Warn the user that staged changes will reflect applied fixes. **Important:** When iterating on staged changes (`git diff --cached`), use `git diff HEAD` instead — this captures both staged and unstaged changes, so fixes applied to the working tree are visible in subsequent iterations
 - All changes are applied via Claude's edit tools — fully visible in the conversation
 - The original file state is preserved; `revert all` restores it completely
