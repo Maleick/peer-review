@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] — 2026-03-31
+
+### Fixed
+
+- **BUG-1:** Notes section incorrectly documented Gemini prompt delivery as `$(cat "$PROMPT_FILE")` — now correctly describes sed-based `$ESCAPED_PROMPT` approach
+- **BUG-2:** Added `<EFFORT_FLAG_GEMINI>` placeholder to Gemini bash template — `--effort` flag now applies to both GPT and Gemini
+- **BUG-3:** Verified `Bash(git diff:*)` in allowed-tools covers `git diff --numstat` (no change needed)
+- **BUG-4:** Fixed `ROUNDS` → `RESOLVED_ROUNDS` inconsistency throughout Steps 4, 4.5, 5, and Notes section
+- **BUG-5:** Removed phantom `/peer-review cancel` subcommand reference from status output
+- **BUG-6:** Documented that Copilot CLI does not support effort control — effort flag silently skipped on fallback
+- **BUG-7:** Clarified COPILOT_FLAGS `-s` is for standalone copilot binary only (not gh copilot extension)
+
+### Changed
+
+- Removed old `claude-plugin/` directory (superseded by `plugins/peer-review/` marketplace format)
+- Removed orphaned `peer-review-workspace/skill-snapshot/SKILL.md` (v0.2 relic)
+- Updated README manual install path to `plugins/peer-review/commands/peer-review.md`
+- Cleaned up stale remote branch `fix/project-health-audit-v0.9.1`
+- Bumped plugin version to 2.0.0
+
+## [1.1.0] — 2026-03-31
+
+### Changed
+
+- Bumped plugin version from 1.0.0 to 1.1.0 for marketplace auto-update
+- Updated model alias resolution example in skill file from `--gpt-model spark` to `--gemini-model flash`
+
+## [1.0.0] — 2026-03-30
+
+### Breaking
+
+- **Converted from manual skill to marketplace plugin format** — peer-review is now installable via `claude plugins install peer-review@peer-review` instead of manual `.claude/skills/` setup
+
+### Added
+
+- `.claude-plugin/marketplace.json` manifest for marketplace distribution
+- `plugins/peer-review/.claude-plugin/plugin.json` plugin descriptor
+- Plugin auto-update on repo push
+
+### Changed
+
+- Restructured from `claude-plugin/` to `plugins/peer-review/` directory layout
+- Skill file moved from `claude-plugin/skills/peer-review/SKILL.md` to `plugins/peer-review/commands/peer-review.md`
+
 ## [0.10.0] — 2026-03-30
 
 ### Added

@@ -28,10 +28,9 @@ Manual install (no auto-updates):
 # Clone this repo
 git clone https://github.com/Maleick/peer-review.git ~/Projects/peer-review
 
-# Copy skill and command to Claude Code
-mkdir -p ~/.claude/skills/peer-review ~/.claude/commands
-cp ~/Projects/peer-review/claude-plugin/skills/peer-review/SKILL.md ~/.claude/skills/peer-review/
-cp ~/Projects/peer-review/claude-plugin/commands/peer-review.md ~/.claude/commands/
+# Copy command to Claude Code
+mkdir -p ~/.claude/commands
+cp ~/Projects/peer-review/plugins/peer-review/commands/peer-review.md ~/.claude/commands/
 ```
 
 **Use it:**
@@ -132,7 +131,7 @@ Run multiple review modes in parallel on the same prompt with cross-mode collisi
 
 ## Configuration
 
-Edit the config block at the top of `.claude/skills/peer-review/SKILL.md`:
+Edit the config block at the top of `plugins/peer-review/commands/peer-review.md`:
 
 ```
 GPT_MODEL: gpt-5.4                # update when new models ship
