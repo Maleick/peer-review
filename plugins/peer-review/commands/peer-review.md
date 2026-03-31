@@ -227,7 +227,7 @@ Extract the subcommand and user's prompt. Parse and remove any flags before disp
 - **`--background`**: Dispatch the review asynchronously. Write results to `JOB_DIR` and return immediately with a job ID. Use `/peer-review status` to check progress and `/peer-review result [job-id]` to retrieve completed results. Incompatible with `--iterate` (iteration requires interactive user input). Quick and single-target modes default to foreground even with `--background`.
 - **`--resume [job-id]`**: Resume a previous background review session. If `job-id` is omitted, resume the most recent job for this repository. Loads the prior review's context and continues from where it left off (e.g., cherry-pick workflow if the review completed but cherry-pick was not done).
 
-**Model alias resolution:** Before validating model names, resolve aliases. If `--gpt-model` value matches a key in `GPT_ALIASES`, replace it with the mapped model name. If `--gemini-model` value matches a key in `GEMINI_ALIASES`, replace it with the mapped model name. Unknown aliases are treated as literal model names (pass-through). Example: `--gpt-model spark` → `--gpt-model gpt-5.3-codex-spark`.
+**Model alias resolution:** Before validating model names, resolve aliases. If `--gpt-model` value matches a key in `GPT_ALIASES`, replace it with the mapped model name. If `--gemini-model` value matches a key in `GEMINI_ALIASES`, replace it with the mapped model name. Unknown aliases are treated as literal model names (pass-through). Example: `--gemini-model flash` → `--gemini-model gemini-2.5-flash`.
 
 Remove all parsed flags from the prompt text before building role-differentiated prompts.
 
