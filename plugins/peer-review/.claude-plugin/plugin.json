@@ -1,0 +1,8 @@
+{
+  "name": "peer-review",
+  "version": "1.0.0",
+  "description": "Multi-LLM peer review — send plans, ideas, or code to GPT (via OpenAI Codex CLI) and Gemini (via Gemini CLI) for structured peer review with cross-examination, then cherry-pick feedback.",
+  "author": {
+    "name": "Maleick"
+  }
+}

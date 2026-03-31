@@ -13,7 +13,8 @@ If onboarding hasn't been performed, run `mcp__plugin_serena_serena__onboarding`
 
 ## Project Structure
 
-- `.claude/skills/peer-review/SKILL.md` — The entire skill runtime (single file). All modes, prompts, templates, and configuration live here.
+- `plugins/peer-review/commands/peer-review.md` — The skill runtime (marketplace plugin format). All modes, prompts, templates, and configuration live here.
+- `.claude-plugin/marketplace.json` — Marketplace manifest for plugin installation via `claude plugins install`
 - `schemas/decision-packet.schema.json` — Formal JSON Schema for Decision Packet v2 output (validates `--json` export)
 - `peer-review-workspace/evals/` — Eval definitions (`evals.json`) and grading scripts (`grade_all.py`)
 - `peer-review-workspace/evals/iteration-1/` — Eval run snapshots with `eval_metadata.json` and `result.md` per run
