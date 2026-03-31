@@ -15,14 +15,23 @@ Get a second opinion from other AI models without leaving Claude Code. This skil
 
 **Install the skill:**
 
-```bash
-# Clone this repo into your projects directory
-git clone https://github.com/<your-username>/peer-review.git ~/Projects/peer-review
+Via plugin marketplace (recommended — auto-updates when you push changes):
 
-# The skill is automatically available when you open Claude Code in this directory.
-# To make it available globally, symlink it:
-mkdir -p ~/.claude/skills
-ln -s ~/Projects/peer-review/.claude/skills/peer-review ~/.claude/skills/peer-review
+```bash
+/plugin marketplace add maleick/peer-review
+/plugin install peer-review@peer-review
+```
+
+Manual install (no auto-updates):
+
+```bash
+# Clone this repo
+git clone https://github.com/Maleick/peer-review.git ~/Projects/peer-review
+
+# Copy skill and command to Claude Code
+mkdir -p ~/.claude/skills/peer-review ~/.claude/commands
+cp ~/Projects/peer-review/claude-plugin/skills/peer-review/SKILL.md ~/.claude/skills/peer-review/
+cp ~/Projects/peer-review/claude-plugin/commands/peer-review.md ~/.claude/commands/
 ```
 
 **Use it:**
