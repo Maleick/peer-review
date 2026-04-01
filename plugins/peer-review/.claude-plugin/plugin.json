@@ -1,7 +1,7 @@
 {
   "name": "peer-review",
-  "version": "2.1.0",
-  "description": "Multi-LLM peer review — send plans, ideas, or code to GPT (via OpenAI Codex CLI) and Gemini (via Gemini CLI) for structured peer review with cross-examination, then cherry-pick feedback.",
+  "version": "2.2.0",
+  "description": "Multi-LLM peer review with 16 modes (review, redteam, gate, delegate, deploy, api, perf, diff…). Cross-examination, Decision Packet v2, background jobs, session resume, multi-mode dispatch, model aliases, effort control, --json export.",
   "author": {
     "name": "Maleick"
   }

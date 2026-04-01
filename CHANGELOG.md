@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] — 2026-03-31
+
+### Added
+
+- **docs/SPEC.md** — canonical reference for modes table, config schema, CLI support matrix, model aliases, options, multi-mode presets, and rounds behavior. Single source of truth replacing parallel copies in README and CONTRIBUTING.md
+
+### Changed
+
+- **Gemini stdin piping** — Gemini dispatch switched from `-p "$ESCAPED_PROMPT"` (argv/`ps` exposure, fragile sed escaping) to `cat "$PROMPT_FILE" | gemini -p "" ...` (stdin pipe, no process listing exposure). Brings Gemini to parity with Codex CLI's stdin approach. SECURITY-REVIEW.md F3 updated to MOSTLY RESOLVED
+- **Marketplace description** — enriched from v1.0 blurb to cover gate, delegate, background, resume, multi-mode dispatch, Decision Packet v2, model aliases, effort control, and --json export
+- **README slimmed** — modes table replaced with highlights + SPEC.md reference; configuration section removed (lives in SPEC.md). Removed "Last Commit", "Repo Size", and "Platform" badges
+- **CONTRIBUTING.md** — "Adding a New Mode" section now references SPEC.md for the 3-touch/4-touch patterns
+
+### Meta
+
+- Version bumped to 2.2.0 across marketplace.json and plugin.json
+- Plugin description synced between marketplace.json and plugin.json
+
 ## [2.1.0] — 2026-03-31
 
 ### Fixed

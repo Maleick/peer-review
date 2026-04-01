@@ -4,11 +4,7 @@ Thanks for your interest in contributing to peer-review. This is a small, focuse
 
 ## Adding a New Mode
 
-All modes are defined in `plugins/peer-review/commands/peer-review.md`. To add one, you need to touch three places in that file:
-
-1. **Modes table** (Step 0 area) — add a row with the invocation, behavior, and default rounds
-2. **Step 1 prompts** — add a new section under "Parse Mode and Build Prompts" with role-differentiated prompts for both GPT and Gemini. Follow the existing pattern: GPT gets an implementation/tactical persona, Gemini gets a strategic/architectural persona. The two prompts should produce genuinely different perspectives, not two versions of the same answer.
-3. **Step 5 template** — if your mode needs a custom summary section (like debate's "Judge's Verdict" or advocate's "Advocate vs. Critic Summary"), add it under Step 5. Otherwise the default Decision Packet template applies.
+See the [3-touch and 4-touch patterns in docs/SPEC.md](docs/SPEC.md#adding-a-new-mode) for the canonical instructions. In short: add a modes table row, Step 1 prompts, and optionally a Step 5 template in `plugins/peer-review/commands/peer-review.md`.
 
 Update the mode list in the skill's `description` frontmatter so Claude Code knows when to trigger the skill for the new mode.
 

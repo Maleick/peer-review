@@ -18,7 +18,7 @@ GEMINI_FALLBACK: gemini-2.5-pro   # fallback on 429/capacity errors — best ava
 GPT_CLI: codex                     # primary: "codex" (OpenAI Codex CLI), fallback: "copilot" (GitHub Copilot CLI)
 CODEX_FLAGS: exec -s read-only              # -s/--sandbox read-only prevents file modifications; prompts passed via positional arg
 COPILOT_FLAGS: -s --no-ask-user    # -s = suppress stats; standalone copilot binary only (not gh copilot extension). Fallback GPT CLI flags (used only when GPT_CLI=copilot)
-GEMINI_FLAGS: -p --model <RESOLVED_GEMINI_MODEL> --approval-mode plan --output-format text
+GEMINI_FLAGS: --model <RESOLVED_GEMINI_MODEL> --approval-mode plan --output-format text  # prompt piped via stdin; -p "" triggers headless mode
 ROUNDS: 2              # cross-examination rounds (1-4); 1 = no cross-exam, 2 = default, 3-4 = deep deliberation
 TIMEOUT_HARD: 180      # seconds — Bash tool timeout, actual hard cutoff. If a call approaches TIMEOUT_HARD, partial output may be captured
 MAX_CROSSEXAM_CHARS: 12000  # truncate peer output before feeding into cross-exam to prevent token explosion
@@ -414,9 +414,7 @@ trap 'rm -f "$PROMPT_FILE" "$STDERR_FILE"' EXIT
 python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
 <full Gemini prompt here>
 PEER_REVIEW_EOF_<8_RANDOM_HEX>
-# Escape prompt content for safe double-quote expansion (handles \, ", $, `)
-ESCAPED_PROMPT=$(sed 's/\\/\\\\/g; s/"/\\"/g; s/\$/\\$/g; s/`/\\`/g' "$PROMPT_FILE")
-gemini -p "$ESCAPED_PROMPT" --model <RESOLVED_GEMINI_MODEL> --approval-mode plan --output-format text <EFFORT_FLAG_GEMINI> 2>"$STDERR_FILE"; EXIT_CODE=$?
+cat "$PROMPT_FILE" | gemini -p "" --model <RESOLVED_GEMINI_MODEL> --approval-mode plan --output-format text <EFFORT_FLAG_GEMINI> 2>"$STDERR_FILE"; EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   echo "GEMINI_FAILED: exit code $EXIT_CODE"
   echo "GEMINI_STDERR: $(cat "$STDERR_FILE")"
@@ -431,7 +429,7 @@ trap - EXIT
 - Python one-liner stdin write avoids all shell escaping issues. `chmod 600` restricts read access. `trap` ensures cleanup on failure.
 - **Codex CLI:** `-s read-only` sandbox, stdin piping (`cat "$PROMPT_FILE" | codex exec ... -`) prevents `ps` exposure and `ARG_MAX` limits
 - **Copilot CLI (fallback):** `--no-ask-user` for non-interactive, `-s` for clean output, stdin piping
-- **Gemini CLI:** `--approval-mode plan` prevents tool use. Prompt passed via `-p "$ESCAPED_PROMPT"` (known argv/`ps` exposure tradeoff — no stdin-only mode). sed escapes `\`, `"`, `$`, `` ` `` for safe expansion
+- **Gemini CLI:** `--approval-mode plan` prevents tool use. Prompt piped via stdin (`cat "$PROMPT_FILE" | gemini -p "" ...`) — `-p ""` triggers headless mode, stdin delivers the content (no argv/`ps` exposure)
 - Stderr captured to temp file for diagnostics (not discarded)
 
 **Effort flag resolution:** Replace `<EFFORT_FLAG_GPT>` with the resolved effort flag for GPT dispatch. If `--effort` was set or `DEFAULT_EFFORT` is non-empty, use `--reasoning-effort <level>` for Codex CLI. If effort is unset/empty, replace with nothing (empty string — omit the flag entirely). Copilot CLI does not support effort control — when using Copilot fallback, silently skip the effort flag (resolve `<EFFORT_FLAG_GPT>` to empty string). Replace `<EFFORT_FLAG_GEMINI>` with the resolved effort flag for Gemini dispatch. If `--effort` was set or `DEFAULT_EFFORT` is non-empty, use `--thinking-budget-tokens <N>` where N maps from: low=1024, medium=4096, high=8192, xhigh=16384. If effort is unset/empty, replace with nothing (empty string — omit the flag entirely).
