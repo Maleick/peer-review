@@ -414,7 +414,7 @@ trap 'rm -f "$PROMPT_FILE" "$STDERR_FILE"' EXIT
 python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())" "$PROMPT_FILE" << 'PEER_REVIEW_EOF_<8_RANDOM_HEX>'
 <full Gemini prompt here>
 PEER_REVIEW_EOF_<8_RANDOM_HEX>
-cat "$PROMPT_FILE" | gemini -p "" --model <RESOLVED_GEMINI_MODEL> --approval-mode plan --output-format text <EFFORT_FLAG_GEMINI> 2>"$STDERR_FILE"; EXIT_CODE=$?
+gemini -p "" --model <RESOLVED_GEMINI_MODEL> --approval-mode plan --output-format text <EFFORT_FLAG_GEMINI> < "$PROMPT_FILE" 2>"$STDERR_FILE"; EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   echo "GEMINI_FAILED: exit code $EXIT_CODE"
   echo "GEMINI_STDERR: $(cat "$STDERR_FILE")"
@@ -429,7 +429,7 @@ trap - EXIT
 - Python one-liner stdin write avoids all shell escaping issues. `chmod 600` restricts read access. `trap` ensures cleanup on failure.
 - **Codex CLI:** `-s read-only` sandbox, stdin piping (`cat "$PROMPT_FILE" | codex exec ... -`) prevents `ps` exposure and `ARG_MAX` limits
 - **Copilot CLI (fallback):** `--no-ask-user` for non-interactive, `-s` for clean output, stdin piping
-- **Gemini CLI:** `--approval-mode plan` prevents tool use. Prompt piped via stdin (`cat "$PROMPT_FILE" | gemini -p "" ...`) — `-p ""` triggers headless mode, stdin delivers the content (no argv/`ps` exposure)
+- **Gemini CLI:** `--approval-mode plan` prevents tool use. Prompt piped via stdin redirection (`gemini -p "" ... < "$PROMPT_FILE"`) — `-p ""` triggers headless mode, stdin delivers the content (no argv/`ps` exposure)
 - Stderr captured to temp file for diagnostics (not discarded)
 
 **Effort flag resolution:** Replace `<EFFORT_FLAG_GPT>` with the resolved effort flag for GPT dispatch. If `--effort` was set or `DEFAULT_EFFORT` is non-empty, use `--reasoning-effort <level>` for Codex CLI. If effort is unset/empty, replace with nothing (empty string — omit the flag entirely). Copilot CLI does not support effort control — when using Copilot fallback, silently skip the effort flag (resolve `<EFFORT_FLAG_GPT>` to empty string). Replace `<EFFORT_FLAG_GEMINI>` with the resolved effort flag for Gemini dispatch. If `--effort` was set or `DEFAULT_EFFORT` is non-empty, use `--thinking-budget-tokens <N>` where N maps from: low=1024, medium=4096, high=8192, xhigh=16384. If effort is unset/empty, replace with nothing (empty string — omit the flag entirely).

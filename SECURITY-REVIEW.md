@@ -35,7 +35,7 @@ The peer-review skill orchestrates multi-LLM peer review by dispatching prompts 
 **Location:** Skill file (GPT and Gemini bash templates)
 **Issue (v0.6.0-v0.7.0):** The GitHub Copilot CLI had no equivalent to the Codex sandbox flags. Both GPT and Gemini dispatch via `copilot -p ... -s --no-ask-user`, which ran with the user's ambient filesystem and network permissions.
 **Resolution (v0.8.0):** Codex CLI restored as primary GPT provider with `--sandbox read-only --ask-for-approval never` flags, providing meaningful file system isolation. Copilot CLI retained as fallback only (no sandbox). Gemini CLI uses `--approval-mode plan` (read-only mode).
-**Resolution (v2.2.0):** Gemini dispatch switched from `-p "$ESCAPED_PROMPT"` (argv/ps exposure) to stdin piping (`cat "$PROMPT_FILE" | gemini -p "" ...`). The `-p ""` flag triggers headless mode while stdin delivers prompt content — no longer visible in process listings. Eliminates the sed-escaping step and brings Gemini to parity with Codex CLI's stdin approach.
+**Resolution (v2.2.0):** Gemini dispatch switched from `-p "$ESCAPED_PROMPT"` (argv/ps exposure) to stdin redirection (`gemini -p "" ... < "$PROMPT_FILE"`). The `-p ""` flag triggers headless mode while stdin delivers prompt content — no longer visible in process listings. Eliminates the sed-escaping step and brings Gemini to parity with Codex CLI's stdin approach.
 **Remaining risk:** When Copilot CLI fallback is active (Codex unavailable), GPT dispatch has no sandbox. Gemini's `--approval-mode plan` prevents agentic tool use but is not a true sandbox.
 **Mitigations:** heredoc randomization, randomized DATA marker framing, temp file security (chmod 600, trap cleanup), stdin piping for all CLIs, and privacy warnings.
 
@@ -102,7 +102,7 @@ All changes are in the skill file (`plugins/peer-review/commands/peer-review.md`
 
 1. **Heredoc delimiter randomization** (F1): Static delimiter replaced with `PEER_REVIEW_EOF_<8_RANDOM_HEX>` placeholder + CRITICAL instruction
 2. **MAX_CROSSEXAM_CHARS enforcement** (F2): Vague prose replaced with mandatory 3-step truncation procedure
-3. **Gemini stdin piping** (F3): Switched from argv `-p "$ESCAPED_PROMPT"` to stdin pipe `cat "$PROMPT_FILE" | gemini -p "" ...` (v2.2.0)
+3. **Gemini stdin redirection** (F3): Switched from argv `-p "$ESCAPED_PROMPT"` to stdin redirection `gemini -p "" ... < "$PROMPT_FILE"` (v2.2.0)
 4. **$TMPDIR for temp files** (F4): `mktemp` paths use `${TMPDIR:-/tmp}` with fallback
 5. **Privacy notice** (F5): Added warning about content sent to external providers
 

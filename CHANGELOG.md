@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.1] — 2026-03-31
+
+### Fixed
+
+- **Mode count** — marketplace.json and plugin.json description said "16 modes", actual count is 20. Corrected both files
+- **Gemini UUOC** — replaced `cat "$PROMPT_FILE" | gemini` with `gemini ... < "$PROMPT_FILE"` (stdin redirection, no unnecessary cat process). Updated SECURITY-REVIEW.md to match
+- **CLAUDE.md audit** — restructured to A-grade: tree-format project structure, deduplicated auth commands, fixed stale eval description, added Commands section, added Gotchas section (description sync, eval count drift, Gemini `-p ""` structural flag, Copilot sandbox gap)
+
+### Meta
+
+- Version bumped to 2.2.1 across marketplace.json and plugin.json
+
 ## [2.2.0] — 2026-03-31
 
 ### Added

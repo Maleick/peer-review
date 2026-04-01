@@ -1,6 +1,6 @@
 {
   "name": "peer-review",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "owner": {
     "name": "Maleick",
     "email": ""
@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "peer-review",
-      "description": "Multi-LLM peer review with 16 modes (review, redteam, gate, delegate, deploy, api, perf, diff…). Cross-examination, Decision Packet v2, background jobs, session resume, multi-mode dispatch, model aliases, effort control, --json export.",
+      "description": "Multi-LLM peer review with 20 modes (review, redteam, gate, delegate, deploy, api, perf, diff…). Cross-examination, Decision Packet v2, background jobs, session resume, multi-mode dispatch, model aliases, effort control, --json export.",
       "source": "./plugins/peer-review",
       "category": "development"
     }
