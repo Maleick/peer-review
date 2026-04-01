@@ -1,5 +1,16 @@
 # peer-review
 
+[![GitHub Release](https://img.shields.io/github/v/release/Maleick/peer-review?style=flat-square&label=release)](https://github.com/Maleick/peer-review/releases)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![Language](https://img.shields.io/badge/language-Shell%20%2F%20Markdown-brightgreen?style=flat-square)](plugins/peer-review/commands/peer-review.md)
+[![Last Commit](https://img.shields.io/github/last-commit/Maleick/peer-review?style=flat-square)](https://github.com/Maleick/peer-review/commits/main)
+[![GitHub Stars](https://img.shields.io/github/stars/Maleick/peer-review?style=flat-square)](https://github.com/Maleick/peer-review/stargazers)
+[![Repo Size](https://img.shields.io/github/repo-size/Maleick/peer-review?style=flat-square)](.)
+[![Status](https://img.shields.io/badge/status-Active-green?style=flat-square)](CHANGELOG.md)
+[![Claude Code](https://img.shields.io/badge/compatible-Claude%20Code-blueviolet?style=flat-square)](https://claude.ai/download)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square)](.)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
+
 Get a second opinion from other AI models without leaving Claude Code. This skill sends your prompt to GPT (via OpenAI Codex CLI) and Gemini (via Gemini CLI), has them debate each other, and brings back a structured summary you can act on.
 
 ## Quick Start
@@ -76,8 +87,12 @@ Every mode gives the two models different roles. Pick the one that matches what 
 | `/peer-review quick <prompt>`    | Fast one-round opinion, no debate                     | `/peer-review quick Is this regex safe?`                   |
 | `/peer-review gpt <prompt>`      | GPT only (single model)                               | `/peer-review gpt Explain this error message`              |
 | `/peer-review gemini <prompt>`   | Gemini only (single model)                            | `/peer-review gemini Review this SQL query`                |
+| `/peer-review gate`              | Review Claude's own output before proceeding          | `/peer-review gate`                                        |
+| `/peer-review delegate <task>`   | Hand off coding to GPT/Gemini with write permissions  | `/peer-review delegate Fix the auth bug from items 1, 3`   |
 | `/peer-review help`              | Show all modes and options                            |                                                            |
 | `/peer-review history`           | Show previous reviews this session                    |                                                            |
+| `/peer-review status`            | List active/recent background review jobs             | `/peer-review status`                                      |
+| `/peer-review result [job-id]`   | Retrieve completed background review results          | `/peer-review result JOB_20260330_1423_a3f7b21e`           |
 
 Legacy alias: `/brainstorm` maps to the same modes.
 
@@ -96,7 +111,21 @@ Legacy alias: `/brainstorm` maps to the same modes.
 --json-redacted           # like --json, but auto-redacts detected secrets in the output
 --modes <m1,m2,...>       # run multiple modes in parallel (cap: 4), e.g., --modes redteam,deploy,perf
 --allow-sensitive         # override block-by-default privacy gate for diff mode
+--effort <level>          # control reasoning effort: low, medium, high, xhigh
+--background              # dispatch review async, return job ID immediately
+--resume [job-id]         # resume a prior review session (cherry-pick, add rounds, re-review)
 ```
+
+### Model Aliases
+
+Shorthand aliases for `--gpt-model` and `--gemini-model`:
+
+| Alias   | Resolves To         | Best For              |
+| ------- | ------------------- | --------------------- |
+| `spark` | gpt-5.3-codex-spark | Quick mode, cheap     |
+| `mini`  | gpt-5.4-mini        | Balanced cost/quality |
+| `flash` | gemini-2.5-flash    | Quick mode, fast      |
+| `pro`   | gemini-2.5-pro      | Previous gen pro      |
 
 ### Steelman Mode (`--steelman`)
 
@@ -141,6 +170,8 @@ GPT_CLI: codex                     # "codex" (primary) or "copilot" (fallback)
 ROUNDS: 2                          # cross-examination rounds (1-4)
 MAX_TOTAL_PROMPT_CHARS: 40000      # hard ceiling per dispatch
 MAX_CROSSEXAM_CHARS: 12000         # truncate peer output in cross-exam rounds
+DEFAULT_EFFORT: ""                 # reasoning effort; empty = model default (low/medium/high/xhigh)
+JOB_DIR: "${TMPDIR:-/tmp}/peer-review-jobs"  # persistent job directory for --background
 ```
 
 **To see available models:** For Codex CLI: `echo "hello" | codex exec -s read-only -m <name> -`. For Gemini CLI: `gemini -p "hello" --model <name> --approval-mode plan --output-format text`

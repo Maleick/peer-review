@@ -4,7 +4,7 @@ Thanks for your interest in contributing to peer-review. This is a small, focuse
 
 ## Adding a New Mode
 
-All modes are defined in `SKILL.md`. To add one, you need to touch three places in that file:
+All modes are defined in `plugins/peer-review/commands/peer-review.md`. To add one, you need to touch three places in that file:
 
 1. **Modes table** (Step 0 area) — add a row with the invocation, behavior, and default rounds
 2. **Step 1 prompts** — add a new section under "Parse Mode and Build Prompts" with role-differentiated prompts for both GPT and Gemini. Follow the existing pattern: GPT gets an implementation/tactical persona, Gemini gets a strategic/architectural persona. The two prompts should produce genuinely different perspectives, not two versions of the same answer.
@@ -39,12 +39,13 @@ Standard fork-and-PR workflow:
 3. Test every affected mode with at least one real invocation (e.g., if you changed the redteam prompts, run `/peer-review redteam <something>` and verify the output)
 4. Open a PR with a clear description of what changed and why
 
-Keep changes to `SKILL.md` minimal and focused. The skill file is the entire runtime — a stray character can break invocation.
+Keep changes to `plugins/peer-review/commands/peer-review.md` minimal and focused. The skill file is the entire runtime — a stray character can break invocation.
 
 ## Security Considerations
 
-The CLI invocation templates in SKILL.md contain several security measures that must be preserved:
+The CLI invocation templates in the skill file (`plugins/peer-review/commands/peer-review.md`) contain several security measures that must be preserved:
 
+- **Codex CLI is the primary GPT provider** — Copilot CLI is a fallback only. Codex provides sandbox isolation that Copilot lacks.
 - **Codex CLI flags** (`--sandbox read-only`, `--ask-for-approval never`) — ensures non-interactive, sandboxed dispatch. Copilot CLI fallback uses `--no-ask-user`, `-s` (no sandbox equivalent — see SECURITY-REVIEW.md F3).
 - **Randomized heredoc delimiters** — the `PEER_REVIEW_EOF_<8_RANDOM_HEX>` pattern must generate fresh random hex on every invocation. This prevents user input from injecting the delimiter to escape the heredoc.
 - **Temp file cleanup** — every temp file must have a `trap` for cleanup on failure and explicit `rm -f` after use.
@@ -53,3 +54,7 @@ The CLI invocation templates in SKILL.md contain several security measures that 
 - **Python one-liner for file writes** — prompts are written via `python3 -c "import sys; open(sys.argv[1],'w').write(sys.stdin.read())"` to avoid shell escaping issues. Do not replace this with `echo` or `cat >`.
 
 If you're modifying the CLI invocation templates, make sure all of the above remain intact.
+
+## Plugin Format
+
+peer-review uses the Claude Code marketplace plugin format. The skill file lives at `plugins/peer-review/commands/peer-review.md` with manifests at `.claude-plugin/marketplace.json` (repo-level) and `plugins/peer-review/.claude-plugin/plugin.json` (plugin-level). Install via `claude plugins install peer-review@peer-review`.
